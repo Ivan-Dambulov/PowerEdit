@@ -1,166 +1,125 @@
 import os
 import re
-import sys
-import subprocess
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, colorchooser, font
+from tkinter import ttk, filedialog, messagebox, colorchooser
 
 
 class PowerEdit:
+    """
+    PowerEdit
+    ----------
+    Lightweight WordPad-style rich-text editor built with Tkinter.
+
+    Features:
+        - Font family / size
+        - Bold / italic / underline / strike
+        - Text color
+        - Left / center / right alignment
+        - Bulleted lists
+        - Numbered lists
+        - Find / replace
+        - Undo / redo
+        - TXT / basic RTF
+        - Printing
+        - Keyboard shortcuts
+    """
+
+    DEFAULT_FONT = "Arial"
+    DEFAULT_SIZE = 12
+    DEFAULT_COLOR = "#000000"
+
+    BULLET_PREFIX = "• "
+    NUMBER_PREFIX_RE = re.compile(r"^(\d+)\.\s")
+
     def __init__(self, root):
         self.root = root
         self.root.title("PowerEdit")
-        self.root.geometry("1100x720")
-        self.root.minsize(800, 500)
+        self.root.geometry("1100x700")
+        self.root.minsize(750, 500)
 
-        # ---------------------------------------------------------
-        # Document state
-        # ---------------------------------------------------------
-
-        self.current_file = None
+        self.filename = None
         self.modified = False
 
-        self.current_font = "Arial"
-        self.current_size = 12
-        self.current_color = "#000000"
+        # Current formatting state
+        self.current_font = self.DEFAULT_FONT
+        self.current_size = self.DEFAULT_SIZE
+        self.current_color = self.DEFAULT_COLOR
 
         self.bold = False
         self.italic = False
         self.underline = False
         self.strike = False
-
         self.current_alignment = "left"
 
-        # Remember selection because clicking toolbar removes focus
+        # Last selection is remembered because toolbar clicks remove
+        # focus from the Text widget.
         self.last_selection_start = None
         self.last_selection_end = None
 
-        # Formatting tags -> formatting dictionary
-        self.format_tags = {}
-
-        # Find/replace state
+        # Find/replace
         self.find_window = None
 
-        # ---------------------------------------------------------
-        # Variables
-        # ---------------------------------------------------------
-
-        self.font_var = tk.StringVar(value=self.current_font)
-        self.size_var = tk.StringVar(value=str(self.current_size))
-
-        self.status_var = tk.StringVar(value="Ready")
-
-        # ---------------------------------------------------------
-        # Build UI
-        # ---------------------------------------------------------
+        # Formatting tags
+        self.format_tags = {}
 
         self.create_menu()
         self.create_toolbar()
         self.create_editor()
         self.create_statusbar()
+        self.create_bindings()
 
-        self.bind_shortcuts()
-
-        # Initial format tag
-        self.create_format_tag(self.get_current_format())
-
-        self.update_toolbar()
         self.update_title()
+        self.update_toolbar()
 
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.protocol("WM_DELETE_WINDOW", self.exit_application)
 
-    # =============================================================
+        self.text.focus_set()
+
+    # ============================================================
     # MENU
-    # =============================================================
+    # ============================================================
 
     def create_menu(self):
         menubar = tk.Menu(self.root)
 
         # File
         file_menu = tk.Menu(menubar, tearoff=False)
-        file_menu.add_command(
-            label="New",
-            accelerator="Ctrl+N",
-            command=self.new_document
-        )
-        file_menu.add_command(
-            label="Open...",
-            accelerator="Ctrl+O",
-            command=self.open_document
-        )
+        file_menu.add_command(label="New", accelerator="Ctrl+N",
+                              command=self.new_document)
+        file_menu.add_command(label="Open...", accelerator="Ctrl+O",
+                              command=self.open_document)
         file_menu.add_separator()
-        file_menu.add_command(
-            label="Save",
-            accelerator="Ctrl+S",
-            command=self.save_document
-        )
-        file_menu.add_command(
-            label="Save As...",
-            accelerator="Ctrl+Shift+S",
-            command=self.save_as
-        )
+        file_menu.add_command(label="Save", accelerator="Ctrl+S",
+                              command=self.save_document)
+        file_menu.add_command(label="Save As...", accelerator="Ctrl+Shift+S",
+                              command=self.save_as)
         file_menu.add_separator()
-        file_menu.add_command(
-            label="Print",
-            accelerator="Ctrl+P",
-            command=self.print_document
-        )
+        file_menu.add_command(label="Print", accelerator="Ctrl+P",
+                              command=self.print_document)
         file_menu.add_separator()
-        file_menu.add_command(
-            label="Exit",
-            command=self.on_close
-        )
-
+        file_menu.add_command(label="Exit", command=self.exit_application)
         menubar.add_cascade(label="File", menu=file_menu)
 
         # Edit
         edit_menu = tk.Menu(menubar, tearoff=False)
-
-        edit_menu.add_command(
-            label="Undo",
-            accelerator="Ctrl+Z",
-            command=self.undo
-        )
-        edit_menu.add_command(
-            label="Redo",
-            accelerator="Ctrl+Y",
-            command=self.redo
-        )
+        edit_menu.add_command(label="Undo", accelerator="Ctrl+Z",
+                              command=self.undo)
+        edit_menu.add_command(label="Redo", accelerator="Ctrl+Y",
+                              command=self.redo)
         edit_menu.add_separator()
-
-        edit_menu.add_command(
-            label="Cut",
-            accelerator="Ctrl+X",
-            command=self.cut
-        )
-        edit_menu.add_command(
-            label="Copy",
-            accelerator="Ctrl+C",
-            command=self.copy
-        )
-        edit_menu.add_command(
-            label="Paste",
-            accelerator="Ctrl+V",
-            command=self.paste
-        )
-        edit_menu.add_command(
-            label="Select All",
-            accelerator="Ctrl+A",
-            command=self.select_all
-        )
+        edit_menu.add_command(label="Cut", accelerator="Ctrl+X",
+                              command=self.cut)
+        edit_menu.add_command(label="Copy", accelerator="Ctrl+C",
+                              command=self.copy)
+        edit_menu.add_command(label="Paste", accelerator="Ctrl+V",
+                              command=self.paste)
+        edit_menu.add_command(label="Select All", accelerator="Ctrl+A",
+                              command=self.select_all)
         edit_menu.add_separator()
-
-        edit_menu.add_command(
-            label="Find",
-            accelerator="Ctrl+F",
-            command=self.show_find
-        )
-        edit_menu.add_command(
-            label="Replace",
-            accelerator="Ctrl+H",
-            command=self.show_replace
-        )
-
+        edit_menu.add_command(label="Find", accelerator="Ctrl+F",
+                              command=self.show_find)
+        edit_menu.add_command(label="Replace", accelerator="Ctrl+H",
+                              command=self.show_replace)
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
         # Format
@@ -189,6 +148,21 @@ class PowerEdit:
         format_menu.add_separator()
 
         format_menu.add_command(
+            label="Bulleted List",
+            command=self.toggle_bullets
+        )
+        format_menu.add_command(
+            label="Numbered List",
+            command=self.toggle_numbering
+        )
+        format_menu.add_command(
+            label="Remove List Formatting",
+            command=self.remove_list_formatting
+        )
+
+        format_menu.add_separator()
+
+        format_menu.add_command(
             label="Align Left",
             command=lambda: self.set_alignment("left")
         )
@@ -201,92 +175,73 @@ class PowerEdit:
             command=lambda: self.set_alignment("right")
         )
 
-        format_menu.add_separator()
-
-        format_menu.add_command(
-            label="Text Color...",
-            command=self.choose_custom_color
-        )
-
         menubar.add_cascade(label="Format", menu=format_menu)
-
-        # Help
-        help_menu = tk.Menu(menubar, tearoff=False)
-        help_menu.add_command(
-            label="About PowerEdit",
-            command=self.show_about
-        )
-
-        menubar.add_cascade(label="Help", menu=help_menu)
 
         self.root.config(menu=menubar)
 
-    # =============================================================
+    # ============================================================
     # TOOLBAR
-    # =============================================================
+    # ============================================================
 
     def create_toolbar(self):
-        outer = ttk.Frame(self.root)
-        outer.pack(fill="x", padx=4, pady=4)
+        toolbar = tk.Frame(self.root, bd=1, relief="raised")
+        toolbar.pack(side="top", fill="x")
 
-        # ---------------------------------------------------------
-        # Row 1
-        # ---------------------------------------------------------
+        row1 = tk.Frame(toolbar)
+        row1.pack(side="top", fill="x", padx=3, pady=2)
 
-        row1 = ttk.Frame(outer)
-        row1.pack(fill="x")
+        row2 = tk.Frame(toolbar)
+        row2.pack(side="top", fill="x", padx=3, pady=2)
 
-        # Font
-        ttk.Label(row1, text="Font:").pack(side="left", padx=(2, 3))
+        # --------------------------------------------------------
+        # Row 1 - formatting
+        # --------------------------------------------------------
 
-        fonts = sorted(set(font.families()))
+        tk.Label(row1, text="Font:").pack(side="left", padx=(2, 2))
+
+        self.font_var = tk.StringVar(value=self.DEFAULT_FONT)
 
         self.font_combo = ttk.Combobox(
             row1,
             textvariable=self.font_var,
-            values=fonts,
-            width=24,
-            state="normal"
-        )
-        self.font_combo.pack(side="left", padx=(0, 6))
-
-        self.font_combo.bind(
-            "<<ComboboxSelected>>",
-            self.font_changed
-        )
-        self.font_combo.bind(
-            "<Return>",
-            self.font_changed
+            width=20,
+            state="readonly"
         )
 
-        # Size
-        ttk.Label(row1, text="Size:").pack(side="left", padx=(0, 3))
+        fonts = sorted(
+            set(
+                list(
+                    self.root.tk.call(
+                        "font", "families"
+                    )
+                )
+            )
+        )
 
-        sizes = [
-            "8", "9", "10", "11", "12", "14", "16", "18",
-            "20", "22", "24", "26", "28", "32", "36",
-            "40", "48", "56", "64", "72"
-        ]
+        self.font_combo["values"] = fonts
+        self.font_combo.pack(side="left", padx=2)
+        self.font_combo.bind("<<ComboboxSelected>>", self.font_changed)
+
+        tk.Label(row1, text="Size:").pack(side="left", padx=(8, 2))
+
+        self.size_var = tk.StringVar(value=str(self.DEFAULT_SIZE))
 
         self.size_combo = ttk.Combobox(
             row1,
             textvariable=self.size_var,
-            values=sizes,
             width=5,
-            state="normal"
-        )
-        self.size_combo.pack(side="left", padx=(0, 8))
-
-        self.size_combo.bind(
-            "<<ComboboxSelected>>",
-            self.size_changed
-        )
-        self.size_combo.bind(
-            "<Return>",
-            self.size_changed
+            state="readonly",
+            values=(
+                "8", "9", "10", "11", "12", "14",
+                "16", "18", "20", "22", "24",
+                "28", "32", "36", "48", "72"
+            )
         )
 
-        # Formatting buttons
+        self.size_combo.pack(side="left", padx=2)
+        self.size_combo.bind("<<ComboboxSelected>>", self.size_changed)
+
+        # Bold
         self.bold_button = tk.Button(
             row1,
             text="B",
@@ -297,6 +252,7 @@ class PowerEdit:
         )
         self.bold_button.pack(side="left", padx=1)
 
+        # Italic
         self.italic_button = tk.Button(
             row1,
             text="I",
@@ -307,6 +263,7 @@ class PowerEdit:
         )
         self.italic_button.pack(side="left", padx=1)
 
+        # Underline
         self.underline_button = tk.Button(
             row1,
             text="U",
@@ -317,6 +274,7 @@ class PowerEdit:
         )
         self.underline_button.pack(side="left", padx=1)
 
+        # Strike
         self.strike_button = tk.Button(
             row1,
             text="S",
@@ -327,382 +285,285 @@ class PowerEdit:
         )
         self.strike_button.pack(side="left", padx=1)
 
-        ttk.Separator(
-            row1,
-            orient="vertical"
-        ).pack(
-            side="left",
-            fill="y",
-            padx=6
-        )
-
         # Color
-        ttk.Label(row1, text="Color:").pack(side="left")
+        tk.Label(row1, text="Color:").pack(side="left", padx=(8, 2))
 
         self.color_button = tk.Button(
             row1,
             text="A",
             width=3,
-            bg="#000000",
-            fg="white",
-            command=self.show_color_palette
+            font=("Arial", 10, "bold"),
+            fg="black",
+            command=self.choose_color
         )
-        self.color_button.pack(side="left", padx=3)
+        self.color_button.pack(side="left", padx=2)
 
-        ttk.Separator(
+        # Lists
+        self.bullet_button = ttk.Button(
+            row2,
+            text="• List",
+            command=self.toggle_bullets
+        )
+        self.bullet_button.pack(side="left", padx=2)
+
+        self.number_button = ttk.Button(
             row1,
-            orient="vertical"
-        ).pack(
-            side="left",
-            fill="y",
-            padx=6
+            text="1. List",
+            command=self.toggle_numbering
         )
+        self.number_button.pack(side="left", padx=2)
 
+        self.remove_list_button = ttk.Button(
+            row1,
+            text="No List",
+            command=self.remove_list_formatting
+        )
+        self.remove_list_button.pack(side="left", padx=2)
+
+        # --------------------------------------------------------
+        # Row 2
+        # --------------------------------------------------------
         # Alignment
-        ttk.Label(row1, text="Align:").pack(side="left", padx=(0, 3))
-
         ttk.Button(
-            row1,
+            row2,
             text="Left",
             command=lambda: self.set_alignment("left")
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
         ttk.Button(
-            row1,
+            row2,
             text="Center",
             command=lambda: self.set_alignment("center")
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
         ttk.Button(
-            row1,
+            row2,
             text="Right",
             command=lambda: self.set_alignment("right")
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
-        # ---------------------------------------------------------
-        # Row 2
-        # ---------------------------------------------------------
-
-        row2 = ttk.Frame(outer)
-        row2.pack(fill="x", pady=(4, 0))
+        ttk.Separator(
+            row2,
+            orient="vertical"
+        ).pack(side="left", fill="y", padx=7)
 
         ttk.Button(
             row2,
             text="Undo",
             command=self.undo
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
         ttk.Button(
             row2,
             text="Redo",
             command=self.redo
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
-        ttk.Button(
-            row2,
-            text="Cut",
-            command=self.cut
-        ).pack(side="left", padx=1)
 
-        ttk.Button(
-            row2,
-            text="Copy",
-            command=self.copy
-        ).pack(side="left", padx=1)
-
-        ttk.Button(
-            row2,
-            text="Paste",
-            command=self.paste
-        ).pack(side="left", padx=1)
-
-        ttk.Button(
-            row2,
-            text="Select All",
-            command=self.select_all
-        ).pack(side="left", padx=1)
-
-        ttk.Separator(
-            row2,
-            orient="vertical"
-        ).pack(
-            side="left",
-            fill="y",
-            padx=6
-        )
 
         ttk.Button(
             row2,
             text="Find",
             command=self.show_find
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
         ttk.Button(
             row2,
             text="Replace",
             command=self.show_replace
-        ).pack(side="left", padx=1)
-
-        ttk.Separator(
-            row2,
-            orient="vertical"
-        ).pack(
-            side="left",
-            fill="y",
-            padx=6
-        )
+        ).pack(side="left", padx=2)
 
         ttk.Button(
             row2,
             text="Print",
             command=self.print_document
-        ).pack(side="left", padx=1)
+        ).pack(side="left", padx=2)
 
-    # =============================================================
-    # EDITOR
-    # =============================================================
+        ttk.Separator(
+            row2,
+            orient="vertical"
+        ).pack(side="left", fill="y", padx=7)
+
+
+
+
+
+    # ============================================================
+    # TEXT EDITOR
+    # ============================================================
 
     def create_editor(self):
-        frame = ttk.Frame(self.root)
-        frame.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+        frame = tk.Frame(self.root)
+        frame.pack(fill="both", expand=True)
 
         self.text = tk.Text(
             frame,
             wrap="word",
             undo=True,
             maxundo=-1,
-            font=(self.current_font, self.current_size),
-            padx=8,
-            pady=8
+            font=(self.DEFAULT_FONT, self.DEFAULT_SIZE),
+            padx=10,
+            pady=10,
+            tabs=("2c",)
         )
 
-        scrollbar_y = ttk.Scrollbar(
+        self.text.pack(
+            side="left",
+            fill="both",
+            expand=True
+        )
+
+        scrollbar = ttk.Scrollbar(
             frame,
             orient="vertical",
             command=self.text.yview
         )
+        scrollbar.pack(side="right", fill="y")
 
-        scrollbar_x = ttk.Scrollbar(
-            frame,
-            orient="horizontal",
-            command=self.text.xview
+        self.text.configure(yscrollcommand=scrollbar.set)
+
+        # Alignment tags
+        self.text.tag_configure(
+            "align_left",
+            justify="left"
         )
-
-        self.text.configure(
-            yscrollcommand=scrollbar_y.set,
-            xscrollcommand=scrollbar_x.set
-        )
-
-        self.text.grid(
-            row=0,
-            column=0,
-            sticky="nsew"
-        )
-
-        scrollbar_y.grid(
-            row=0,
-            column=1,
-            sticky="ns"
-        )
-
-        scrollbar_x.grid(
-            row=1,
-            column=0,
-            sticky="ew"
-        )
-
-        frame.rowconfigure(0, weight=1)
-        frame.columnconfigure(0, weight=1)
-
-        # Selection tracking
-        self.text.bind(
-            "<ButtonRelease-1>",
-            self.remember_selection
-        )
-
-        self.text.bind(
-            "<B1-Motion>",
-            self.remember_selection
-        )
-
-        self.text.bind(
-            "<<Selection>>",
-            self.remember_selection
-        )
-
-        self.text.bind(
-            "<KeyRelease>",
-            self.editor_key_release
-        )
-
-        self.text.bind(
-            "<KeyPress>",
-            self.handle_keypress
-        )
-
-        self.text.bind(
-            "<Button-1>",
-            self.cursor_changed
-        )
-
-        self.text.bind(
-            "<Motion>",
-            self.cursor_changed
-        )
-
-        # Right click
-        self.text.bind(
-            "<Button-3>",
-            self.show_context_menu
-        )
-
-    # =============================================================
-    # STATUS BAR
-    # =============================================================
-
-    def create_statusbar(self):
-        bar = ttk.Frame(self.root)
-        bar.pack(fill="x", padx=5, pady=(0, 4))
-
-        ttk.Label(
-            bar,
-            textvariable=self.status_var,
-            anchor="w"
-        ).pack(side="left")
-
-    # =============================================================
-    # FORMATTING
-    # =============================================================
-
-    def get_current_format(self):
-        return {
-            "font": self.current_font,
-            "size": self.current_size,
-            "color": self.current_color,
-            "bold": self.bold,
-            "italic": self.italic,
-            "underline": self.underline,
-            "strike": self.strike,
-        }
-
-    def normalize_color(self, color):
-        if isinstance(color, tuple):
-            if len(color) >= 2:
-                color = color[1]
-
-        if not color:
-            return "#000000"
-
-        return str(color)
-
-    def create_format_tag(self, fmt):
-        """
-        Create a tag representing a COMPLETE character format.
-
-        A key design point:
-        when changing only size, we copy the existing format and
-        modify only size. This prevents the font from changing.
-        """
-
-        fmt = fmt.copy()
-
-        fmt["font"] = str(fmt.get("font", "Arial"))
-        fmt["size"] = int(fmt.get("size", 12))
-        fmt["color"] = self.normalize_color(
-            fmt.get("color", "#000000")
-        )
-
-        fmt["bold"] = bool(fmt.get("bold", False))
-        fmt["italic"] = bool(fmt.get("italic", False))
-        fmt["underline"] = bool(fmt.get("underline", False))
-        fmt["strike"] = bool(fmt.get("strike", False))
-
-        family = re.sub(
-            r"[^A-Za-z0-9]",
-            "_",
-            fmt["font"]
-        )
-
-        color = fmt["color"].replace("#", "")
-
-        tag = (
-            f"fmt_"
-            f"{family}_"
-            f"{fmt['size']}_"
-            f"{color}_"
-            f"{int(fmt['bold'])}_"
-            f"{int(fmt['italic'])}_"
-            f"{int(fmt['underline'])}_"
-            f"{int(fmt['strike'])}"
-        )
-
-        styles = []
-
-        if fmt["bold"]:
-            styles.append("bold")
-
-        if fmt["italic"]:
-            styles.append("italic")
-
-        style = " ".join(styles)
 
         self.text.tag_configure(
-            tag,
-            font=(
-                fmt["font"],
-                fmt["size"],
-                style
-            ),
-            foreground=fmt["color"],
-            underline=fmt["underline"],
-            overstrike=fmt["strike"]
+            "align_center",
+            justify="center"
         )
 
-        self.format_tags[tag] = fmt.copy()
+        self.text.tag_configure(
+            "align_right",
+            justify="right"
+        )
 
-        return tag
+    # ============================================================
+    # STATUS BAR
+    # ============================================================
 
-    def get_format_at(self, index):
-        """
-        Return the complete formatting of the character at index.
-        """
+    def create_statusbar(self):
+        self.status_var = tk.StringVar(value="Ready")
 
-        tags = self.text.tag_names(index)
+        status = tk.Label(
+            self.root,
+            textvariable=self.status_var,
+            anchor="w",
+            bd=1,
+            relief="sunken"
+        )
+        status.pack(side="bottom", fill="x")
 
-        # Most recently applied formatting tag is preferred.
-        for tag in reversed(tags):
-            if tag.startswith("fmt_"):
-                fmt = self.format_tags.get(tag)
+    # ============================================================
+    # BINDINGS
+    # ============================================================
 
-                if fmt:
-                    return fmt.copy()
+    def create_bindings(self):
+        self.root.bind_all("<Control-n>", self.shortcut_new)
+        self.root.bind_all("<Control-o>", self.shortcut_open)
+        self.root.bind_all("<Control-s>", self.shortcut_save)
+        self.root.bind_all("<Control-Shift-S>", self.shortcut_save_as)
 
-        return self.get_current_format()
+        self.root.bind_all("<Control-z>", self.shortcut_undo)
+        self.root.bind_all("<Control-y>", self.shortcut_redo)
 
-    def remove_format_tags(self, start, end):
-        """
-        Remove only our character-format tags.
-        Alignment tags are left untouched.
-        """
+        self.root.bind_all("<Control-x>", self.shortcut_cut)
+        self.root.bind_all("<Control-c>", self.shortcut_copy)
+        self.root.bind_all("<Control-v>", self.shortcut_paste)
+        self.root.bind_all("<Control-a>", self.shortcut_select_all)
 
-        tags = self.text.tag_names()
+        self.root.bind_all("<Control-f>", self.shortcut_find)
+        self.root.bind_all("<Control-h>", self.shortcut_replace)
+        self.root.bind_all("<Control-p>", self.shortcut_print)
 
-        for tag in tags:
-            if tag.startswith("fmt_"):
-                self.text.tag_remove(
-                    tag,
-                    start,
-                    end
-                )
+        self.root.bind_all("<Control-b>", self.shortcut_bold)
+        self.root.bind_all("<Control-i>", self.shortcut_italic)
+        self.root.bind_all("<Control-u>", self.shortcut_underline)
+
+        self.text.bind("<<Modified>>", self.on_modified)
+        self.text.bind("<KeyRelease>", self.cursor_changed)
+        self.text.bind("<ButtonRelease-1>", self.remember_selection)
+        self.text.bind("<B1-Motion>", self.remember_selection)
+
+        # Enter is handled to continue lists.
+        self.text.bind("<Return>", self.handle_return)
+
+        # Tab inside a list increases indentation.
+        self.text.bind("<Tab>", self.handle_tab)
+
+    # ============================================================
+    # SHORTCUTS
+    # ============================================================
+
+    def shortcut_new(self, event=None):
+        self.new_document()
+        return "break"
+
+    def shortcut_open(self, event=None):
+        self.open_document()
+        return "break"
+
+    def shortcut_save(self, event=None):
+        self.save_document()
+        return "break"
+
+    def shortcut_save_as(self, event=None):
+        self.save_as()
+        return "break"
+
+    def shortcut_undo(self, event=None):
+        self.undo()
+        return "break"
+
+    def shortcut_redo(self, event=None):
+        self.redo()
+        return "break"
+
+    def shortcut_cut(self, event=None):
+        self.cut()
+        return "break"
+
+    def shortcut_copy(self, event=None):
+        self.copy()
+        return "break"
+
+    def shortcut_paste(self, event=None):
+        self.paste()
+        return "break"
+
+    def shortcut_select_all(self, event=None):
+        self.select_all()
+        return "break"
+
+    def shortcut_find(self, event=None):
+        self.show_find()
+        return "break"
+
+    def shortcut_replace(self, event=None):
+        self.show_replace()
+        return "break"
+
+    def shortcut_print(self, event=None):
+        self.print_document()
+        return "break"
+
+    def shortcut_bold(self, event=None):
+        self.toggle_bold()
+        return "break"
+
+    def shortcut_italic(self, event=None):
+        self.toggle_italic()
+        return "break"
+
+    def shortcut_underline(self, event=None):
+        self.toggle_underline()
+        return "break"
+
+    # ============================================================
+    # FORMATTING
+    # ============================================================
 
     def get_selection_range(self):
-        """
-        Get the active selection.
-
-        If clicking the toolbar removed the actual Tk selection,
-        use the remembered selection.
-        """
-
         try:
             start = self.text.index("sel.first")
             end = self.text.index("sel.last")
@@ -717,24 +578,12 @@ class PowerEdit:
                 self.last_selection_start is not None
                 and self.last_selection_end is not None
             ):
-                try:
-                    # Validate indexes
-                    self.text.index(
-                        self.last_selection_start
-                    )
-                    self.text.index(
-                        self.last_selection_end
-                    )
+                return (
+                    self.last_selection_start,
+                    self.last_selection_end
+                )
 
-                    return (
-                        self.last_selection_start,
-                        self.last_selection_end
-                    )
-
-                except tk.TclError:
-                    pass
-
-        return None, None
+            return None, None
 
     def remember_selection(self, event=None):
         try:
@@ -744,102 +593,136 @@ class PowerEdit:
             self.last_selection_start = start
             self.last_selection_end = end
 
-            self.status_var.set(
-                f"Selected: {self.text.count(start, end, 'chars')[0]} characters"
-            )
-
         except tk.TclError:
             pass
+
+        self.update_toolbar()
+
+    def get_format_at(self, index):
+        tags = self.text.tag_names(index)
+
+        # Find the newest formatting tag.
+        for tag in reversed(tags):
+            if tag.startswith("fmt_") and tag in self.format_tags:
+                return self.format_tags[tag].copy()
+
+        return {
+            "font": self.current_font,
+            "size": self.current_size,
+            "color": self.current_color,
+            "bold": self.bold,
+            "italic": self.italic,
+            "underline": self.underline,
+            "strike": self.strike
+        }
+
+    def create_format_tag(self, fmt):
+        family = re.sub(
+            r"[^A-Za-z0-9]",
+            "_",
+            str(fmt["font"])
+        )
+
+        color = str(fmt["color"]).replace("#", "")
+
+        styles = []
+
+        if fmt["bold"]:
+            styles.append("bold")
+
+        if fmt["italic"]:
+            styles.append("italic")
+
+        style_string = " ".join(styles)
+
+        tag_name = (
+            f"fmt_{family}_"
+            f"{fmt['size']}_"
+            f"{color}_"
+            f"{int(fmt['bold'])}_"
+            f"{int(fmt['italic'])}_"
+            f"{int(fmt['underline'])}_"
+            f"{int(fmt['strike'])}"
+        )
+
+        if tag_name not in self.format_tags:
+            self.format_tags[tag_name] = fmt.copy()
+
+            self.text.tag_configure(
+                tag_name,
+                font=(
+                    fmt["font"],
+                    fmt["size"],
+                    style_string
+                ),
+                foreground=fmt["color"],
+                underline=fmt["underline"],
+                overstrike=fmt["strike"]
+            )
+
+        return tag_name
+
+    def remove_format_tags(self, start, end):
+        tags = self.text.tag_names()
+
+        for tag in tags:
+            if tag.startswith("fmt_"):
+                self.text.tag_remove(
+                    tag,
+                    start,
+                    end
+                )
 
     def apply_single_property_to_selection(
         self,
         property_name,
         value
     ):
-        """
-        Change ONLY one formatting property.
-
-        This is the key method that prevents:
-            changing size -> changing font
-            changing color -> changing size
-            changing bold -> changing everything
-        """
-
         start, end = self.get_selection_range()
 
         if not start or not end:
             return False
 
-        # Save selection
-        self.last_selection_start = start
-        self.last_selection_end = end
+        try:
+            start_index = self.text.index(start)
+            end_index = self.text.index(end)
 
-        pos = start
+            pos = start_index
 
-        while self.text.compare(pos, "<", end):
+            while self.text.compare(pos, "<", end_index):
+                next_pos = self.text.index(f"{pos} + 1c")
 
-            next_pos = self.text.index(
-                f"{pos} + 1 char"
+                fmt = self.get_format_at(pos)
+
+                fmt[property_name] = value
+
+                tag = self.create_format_tag(fmt)
+
+                self.remove_format_tags(
+                    pos,
+                    next_pos
+                )
+
+                self.text.tag_add(
+                    tag,
+                    pos,
+                    next_pos
+                )
+
+                pos = next_pos
+
+            self.restore_selection(
+                start_index,
+                end_index
             )
 
-            fmt = self.get_format_at(pos)
+            self.modified = True
+            self.update_title()
 
-            # Change ONLY the requested property.
-            fmt[property_name] = value
+            return True
 
-            # Remove old complete format from this character.
-            for tag in self.text.tag_names(pos):
-                if tag.startswith("fmt_"):
-                    self.text.tag_remove(
-                        tag,
-                        pos,
-                        next_pos
-                    )
-
-            # Add the modified complete format.
-            tag = self.create_format_tag(fmt)
-
-            self.text.tag_add(
-                tag,
-                pos,
-                next_pos
-            )
-
-            pos = next_pos
-
-        self.modified = True
-        self.update_title()
-
-        self.restore_selection(start, end)
-
-        return True
-
-    def apply_current_format_to_selection(self):
-        """
-        Used when applying the complete current format.
-        """
-
-        start, end = self.get_selection_range()
-
-        if not start or not end:
-            return
-
-        self.remove_format_tags(start, end)
-
-        tag = self.create_format_tag(
-            self.get_current_format()
-        )
-
-        self.text.tag_add(
-            tag,
-            start,
-            end
-        )
-
-        self.modified = True
-        self.update_title()
-
-        self.restore_selection(start, end)
+        except tk.TclError:
+            return False
 
     def restore_selection(self, start, end):
         try:
@@ -860,17 +743,11 @@ class PowerEdit:
                 end
             )
 
-            self.text.see(start)
+            self.last_selection_start = start
+            self.last_selection_end = end
 
         except tk.TclError:
             pass
-
-        self.last_selection_start = start
-        self.last_selection_end = end
-
-    # -------------------------------------------------------------
-    # Font
-    # -------------------------------------------------------------
 
     def font_changed(self, event=None):
         value = self.font_var.get().strip()
@@ -878,622 +755,733 @@ class PowerEdit:
         if not value:
             return
 
-        start, end = self.get_selection_range()
-
-        if start and end:
-            # ONLY font changes.
-            self.apply_single_property_to_selection(
-                "font",
-                value
-            )
+        if self.apply_single_property_to_selection(
+            "font",
+            value
+        ):
+            pass
         else:
             self.current_font = value
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # -------------------------------------------------------------
-    # Size
-    # -------------------------------------------------------------
-
     def size_changed(self, event=None):
         try:
-            value = int(
-                self.size_var.get().strip()
-            )
+            value = int(self.size_var.get())
         except (ValueError, TypeError):
             return
 
         if value < 1:
             return
 
-        start, end = self.get_selection_range()
-
-        if start and end:
-            # ONLY size changes.
-            self.apply_single_property_to_selection(
-                "size",
-                value
-            )
+        if self.apply_single_property_to_selection(
+            "size",
+            value
+        ):
+            pass
         else:
             self.current_size = value
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # -------------------------------------------------------------
-    # Color
-    # -------------------------------------------------------------
-
-    def set_color(self, color, window=None):
-        color = self.normalize_color(color)
-
-        start, end = self.get_selection_range()
-
-        if start and end:
-            # ONLY color changes.
-            self.apply_single_property_to_selection(
-                "color",
-                color
-            )
-        else:
-            self.current_color = color
-
-        if window is not None:
-            try:
-                window.destroy()
-            except tk.TclError:
-                pass
-
-        self.text.focus_set()
-        self.update_toolbar()
-
-    def choose_custom_color(self):
-        result = colorchooser.askcolor(
-            title="Choose Text Color",
-            parent=self.root
-        )
-
-        if result:
-            rgb, hex_color = result
-
-            if hex_color:
-                self.set_color(hex_color)
-
-    # -------------------------------------------------------------
-    # Bold
-    # -------------------------------------------------------------
-
     def toggle_bold(self):
         start, end = self.get_selection_range()
 
         if start and end:
-            fmt = self.get_format_at(start)
+            first = self.get_format_at(start)
+            value = not first["bold"]
 
             self.apply_single_property_to_selection(
                 "bold",
-                not fmt["bold"]
+                value
             )
+
+            self.bold = value
         else:
             self.bold = not self.bold
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # -------------------------------------------------------------
-    # Italic
-    # -------------------------------------------------------------
-
     def toggle_italic(self):
         start, end = self.get_selection_range()
 
         if start and end:
-            fmt = self.get_format_at(start)
+            first = self.get_format_at(start)
+            value = not first["italic"]
 
             self.apply_single_property_to_selection(
                 "italic",
-                not fmt["italic"]
+                value
             )
+
+            self.italic = value
         else:
             self.italic = not self.italic
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # -------------------------------------------------------------
-    # Underline
-    # -------------------------------------------------------------
-
     def toggle_underline(self):
         start, end = self.get_selection_range()
 
         if start and end:
-            fmt = self.get_format_at(start)
+            first = self.get_format_at(start)
+            value = not first["underline"]
 
             self.apply_single_property_to_selection(
                 "underline",
-                not fmt["underline"]
+                value
             )
+
+            self.underline = value
         else:
             self.underline = not self.underline
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # -------------------------------------------------------------
-    # Strike
-    # -------------------------------------------------------------
-
     def toggle_strike(self):
         start, end = self.get_selection_range()
 
         if start and end:
-            fmt = self.get_format_at(start)
+            first = self.get_format_at(start)
+            value = not first["strike"]
 
             self.apply_single_property_to_selection(
                 "strike",
-                not fmt["strike"]
+                value
             )
+
+            self.strike = value
         else:
             self.strike = not self.strike
 
         self.text.focus_set()
         self.update_toolbar()
 
-    # =============================================================
-    # COLOR PALETTE
-    # =============================================================
+    # ============================================================
+    # COLORS
+    # ============================================================
 
-    def show_color_palette(self):
-        window = tk.Toplevel(self.root)
-        window.title("Text Color")
-        window.resizable(False, False)
-        window.transient(self.root)
-
-        colors = [
-            "#000000",
-            "#800000",
-            "#008000",
-            "#808000",
-            "#000080",
-            "#800080",
-            "#008080",
-            "#808080",
-
-            "#C00000",
-            "#FF0000",
-            "#00C000",
-            "#00FF00",
-            "#C0C000",
-            "#FFFF00",
-            "#0000C0",
-            "#0000FF",
-
-            "#C000C0",
-            "#FF00FF",
-            "#00C0C0",
-            "#00FFFF",
-            "#404040",
-            "#808080",
-            "#C0C0C0",
-            "#FFFFFF",
-
-            "#800000",
-            "#FF8000",
-            "#804000",
-            "#804080",
-            "#408080",
-            "#004080",
-            "#0080FF",
-            "#4000FF",
-        ]
-
-        frame = ttk.Frame(window, padding=8)
-        frame.pack()
-
-        for i, color in enumerate(colors):
-            button = tk.Button(
-                frame,
-                bg=color,
-                width=3,
-                height=1,
-                relief="solid",
-                borderwidth=1,
-                command=lambda c=color: self.set_color(
-                    c,
-                    window
-                )
-            )
-
-            button.grid(
-                row=i // 8,
-                column=i % 8,
-                padx=2,
-                pady=2
-            )
-
-        ttk.Button(
-            frame,
-            text="More Colors...",
-            command=lambda: self.choose_color_from_palette_window(
-                window
-            )
-        ).grid(
-            row=4,
-            column=0,
-            columnspan=8,
-            sticky="ew",
-            pady=(7, 0)
-        )
-
-        window.grab_set()
-
-    def choose_color_from_palette_window(self, window):
+    def choose_color(self):
         result = colorchooser.askcolor(
             title="Choose Text Color",
-            parent=window
+            parent=self.root
         )
 
-        if result:
-            rgb, hex_color = result
+        rgb, hex_color = result
 
-            if hex_color:
-                self.set_color(
-                    hex_color,
-                    window
-                )
+        if hex_color:
+            self.set_color(hex_color)
 
-    # =============================================================
-    # ALIGNMENT
-    # =============================================================
+    def set_color(self, color):
+        if isinstance(color, tuple):
+            color = color[1]
 
-    def set_alignment(self, alignment):
-        self.current_alignment = alignment
-
-        start, end = self.get_selection_range()
-
-        if not start or not end:
-            # Future paragraph
-            self.apply_alignment_to_current_line()
+        if not color:
             return
 
-        # Apply to every paragraph touched by selection.
-        line_start = self.text.index(
-            f"{start} linestart"
+        self.current_color = str(color)
+
+        self.apply_single_property_to_selection(
+            "color",
+            self.current_color
         )
 
-        line_end = self.text.index(
-            f"{end} lineend"
-        )
-
-        if alignment == "left":
-            tag = "align_left"
-        elif alignment == "center":
-            tag = "align_center"
-        else:
-            tag = "align_right"
-
-        # Remove alignment tags
-        for name in (
-            "align_left",
-            "align_center",
-            "align_right"
-        ):
-            self.text.tag_remove(
-                name,
-                line_start,
-                line_end
-            )
-
-        self.text.tag_configure(
-            tag,
-            justify=alignment
-        )
-
-        self.text.tag_add(
-            tag,
-            line_start,
-            line_end
-        )
-
-        self.modified = True
-        self.update_title()
-
-        self.restore_selection(
-            start,
-            end
+        self.color_button.configure(
+            fg=self.current_color
         )
 
         self.text.focus_set()
+        self.update_toolbar()
 
-    def apply_alignment_to_current_line(self):
-        index = self.text.index("insert")
+    # ============================================================
+    # ALIGNMENT
+    # ============================================================
 
-        start = self.text.index(
+    def get_paragraph_start(self, index):
+        return self.text.index(
             f"{index} linestart"
         )
 
-        end = self.text.index(
+    def get_paragraph_end(self, index):
+        return self.text.index(
             f"{index} lineend"
         )
 
-        for name in (
-            "align_left",
-            "align_center",
-            "align_right"
+    def get_selected_paragraphs(self):
+        start, end = self.get_selection_range()
+
+        if not start or not end:
+            insert = self.text.index("insert")
+            return [self.get_paragraph_start(insert)]
+
+        first_line = self.text.index(
+            f"{start} linestart"
+        )
+
+        # If selection ends exactly at the beginning of a line,
+        # don't unnecessarily include that line.
+        if self.text.compare(
+            end,
+            ">",
+            f"{end} linestart"
         ):
-            self.text.tag_remove(
-                name,
-                start,
-                end
+            last_line = self.text.index(
+                f"{end} linestart"
+            )
+        else:
+            last_line = self.text.index(
+                f"{end} - 1c linestart"
             )
 
-        tag = f"align_{self.current_alignment}"
+        paragraphs = []
 
-        self.text.tag_configure(
-            tag,
-            justify=self.current_alignment
+        current = first_line
+
+        while self.text.compare(
+            current,
+            "<=",
+            last_line
+        ):
+            paragraphs.append(current)
+
+            next_line = self.text.index(
+                f"{current} + 1 line linestart"
+            )
+
+            if self.text.compare(
+                next_line,
+                ">",
+                last_line
+            ):
+                break
+
+            current = next_line
+
+        return paragraphs
+
+    def set_alignment(self, alignment):
+        paragraphs = self.get_selected_paragraphs()
+
+        for start in paragraphs:
+            end = self.text.index(
+                f"{start} lineend"
+            )
+
+            for tag in (
+                "align_left",
+                "align_center",
+                "align_right"
+            ):
+                self.text.tag_remove(
+                    tag,
+                    start,
+                    f"{end} + 1c"
+                )
+
+            tag = {
+                "left": "align_left",
+                "center": "align_center",
+                "right": "align_right"
+            }[alignment]
+
+            self.text.tag_add(
+                tag,
+                start,
+                f"{end} + 1c"
+            )
+
+        self.current_alignment = alignment
+        self.modified = True
+        self.update_title()
+        self.text.focus_set()
+
+    # ============================================================
+    # LISTS
+    # ============================================================
+
+    def line_text(self, line_start):
+        return self.text.get(
+            line_start,
+            f"{line_start} lineend"
         )
 
-        self.text.tag_add(
-            tag,
-            start,
-            end
+    def line_has_bullet(self, text):
+        return text.startswith(self.BULLET_PREFIX)
+
+    def line_has_number(self, text):
+        return bool(
+            self.NUMBER_PREFIX_RE.match(text)
         )
+
+    def remove_list_from_line(self, line_start):
+        text = self.line_text(line_start)
+
+        if text.startswith(self.BULLET_PREFIX):
+            self.text.delete(
+                line_start,
+                f"{line_start} + {len(self.BULLET_PREFIX)}c"
+            )
+            return "bullet"
+
+        match = self.NUMBER_PREFIX_RE.match(text)
+
+        if match:
+            prefix_length = len(match.group(0))
+
+            self.text.delete(
+                line_start,
+                f"{line_start} + {prefix_length}c"
+            )
+
+            return "number"
+
+        return None
+
+    def add_bullet_to_line(self, line_start):
+        text = self.line_text(line_start)
+
+        if self.line_has_bullet(text):
+            return
+
+        if self.line_has_number(text):
+            self.remove_list_from_line(line_start)
+
+        self.text.insert(
+            line_start,
+            self.BULLET_PREFIX
+        )
+
+    def add_number_to_line(
+        self,
+        line_start,
+        number
+    ):
+        text = self.line_text(line_start)
+
+        if self.line_has_bullet(text):
+            self.remove_list_from_line(line_start)
+        elif self.line_has_number(text):
+            self.remove_list_from_line(line_start)
+
+        self.text.insert(
+            line_start,
+            f"{number}. "
+        )
+
+    def toggle_bullets(self):
+        paragraphs = self.get_selected_paragraphs()
+
+        if not paragraphs:
+            return
+
+        # If every selected paragraph is already a bullet,
+        # remove bullets.
+        all_bullets = all(
+            self.line_has_bullet(
+                self.line_text(p)
+            )
+            for p in paragraphs
+        )
+
+        for paragraph in paragraphs:
+            if all_bullets:
+                if self.line_has_bullet(
+                    self.line_text(paragraph)
+                ):
+                    self.remove_list_from_line(
+                        paragraph
+                    )
+            else:
+                self.add_bullet_to_line(
+                    paragraph
+                )
 
         self.modified = True
         self.update_title()
+        self.text.focus_set()
 
-    # =============================================================
-    # TOOLBAR UPDATE
-    # =============================================================
+    def toggle_numbering(self):
+        paragraphs = self.get_selected_paragraphs()
+
+        if not paragraphs:
+            return
+
+        all_numbered = all(
+            self.line_has_number(
+                self.line_text(p)
+            )
+            for p in paragraphs
+        )
+
+        if all_numbered:
+            for paragraph in paragraphs:
+                self.remove_list_from_line(
+                    paragraph
+                )
+        else:
+            number = 1
+
+            for paragraph in paragraphs:
+                self.add_number_to_line(
+                    paragraph,
+                    number
+                )
+                number += 1
+
+            # Renumber consecutive list items after changes.
+            self.renumber_all_numbered_lists()
+
+        self.modified = True
+        self.update_title()
+        self.text.focus_set()
+
+    def remove_list_formatting(self):
+        paragraphs = self.get_selected_paragraphs()
+
+        for paragraph in paragraphs:
+            self.remove_list_from_line(
+                paragraph
+            )
+
+        self.modified = True
+        self.update_title()
+        self.text.focus_set()
+
+    def renumber_all_numbered_lists(self):
+        current = "1.0"
+        number = 1
+        in_numbered_list = False
+
+        while self.text.compare(
+            current,
+            "<",
+            "end-1c"
+        ):
+            text = self.line_text(current)
+
+            if self.line_has_number(text):
+                prefix_match = self.NUMBER_PREFIX_RE.match(text)
+
+                if prefix_match:
+                    old_number = prefix_match.group(1)
+                    new_prefix = f"{number}. "
+
+                    old_prefix = f"{old_number}. "
+
+                    if old_prefix != new_prefix:
+                        self.text.delete(
+                            current,
+                            f"{current} + {len(old_prefix)}c"
+                        )
+
+                        self.text.insert(
+                            current,
+                            new_prefix
+                        )
+
+                    number += 1
+                    in_numbered_list = True
+            else:
+                if not self.line_has_bullet(text):
+                    number = 1
+                    in_numbered_list = False
+
+            next_line = self.text.index(
+                f"{current} + 1 line linestart"
+            )
+
+            if self.text.compare(
+                next_line,
+                ">=",
+                "end"
+            ):
+                break
+
+            current = next_line
+
+    # ============================================================
+    # LIST ENTER / TAB
+    # ============================================================
+
+    def handle_return(self, event=None):
+        insert = self.text.index("insert")
+
+        line_start = self.text.index(
+            f"{insert} linestart"
+        )
+
+        current_line = self.line_text(
+            line_start
+        )
+
+        # Bullet
+        if current_line.startswith(
+            self.BULLET_PREFIX
+        ):
+            content = current_line[
+                len(self.BULLET_PREFIX):
+            ].strip()
+
+            if not content:
+                # Empty bullet -> remove it and create normal line.
+                self.text.delete(
+                    line_start,
+                    f"{line_start} + {len(self.BULLET_PREFIX)}c"
+                )
+
+                self.text.insert(
+                    insert,
+                    "\n"
+                )
+
+                return "break"
+
+            self.text.insert(
+                insert,
+                "\n" + self.BULLET_PREFIX
+            )
+
+            self.modified = True
+            self.renumber_all_numbered_lists()
+
+            return "break"
+
+        # Numbered list
+        number_match = self.NUMBER_PREFIX_RE.match(
+            current_line
+        )
+
+        if number_match:
+            number = int(
+                number_match.group(1)
+            )
+
+            prefix = number_match.group(0)
+
+            content = current_line[
+                len(prefix):
+            ].strip()
+
+            if not content:
+                # Empty numbered item -> exit list.
+                self.text.delete(
+                    line_start,
+                    f"{line_start} + {len(prefix)}c"
+                )
+
+                self.text.insert(
+                    insert,
+                    "\n"
+                )
+
+                self.renumber_all_numbered_lists()
+
+                return "break"
+
+            self.text.insert(
+                insert,
+                f"\n{number + 1}. "
+            )
+
+            self.renumber_all_numbered_lists()
+
+            self.modified = True
+
+            return "break"
+
+        # Normal Enter
+        self.text.insert(
+            insert,
+            "\n"
+        )
+
+        self.modified = True
+
+        return "break"
+
+    def handle_tab(self, event=None):
+        insert = self.text.index("insert")
+
+        line_start = self.text.index(
+            f"{insert} linestart"
+        )
+
+        text = self.line_text(
+            line_start
+        )
+
+        if (
+            self.line_has_bullet(text)
+            or self.line_has_number(text)
+        ):
+            self.text.insert(
+                line_start,
+                "    "
+            )
+
+            self.modified = True
+
+            return "break"
+
+        return None
+
+    # ============================================================
+    # TOOLBAR STATE
+    # ============================================================
 
     def update_toolbar(self):
-        start, end = self.get_selection_range()
+        try:
+            start, end = self.get_selection_range()
 
-        if start and end:
-            fmt = self.get_format_at(start)
+            if start and end:
+                fmt = self.get_format_at(start)
 
-            self.font_var.set(
-                fmt["font"]
+                self.font_var.set(
+                    fmt["font"]
+                )
+
+                self.size_var.set(
+                    str(fmt["size"])
+                )
+
+                self.current_color = fmt["color"]
+                self.bold = fmt["bold"]
+                self.italic = fmt["italic"]
+                self.underline = fmt["underline"]
+                self.strike = fmt["strike"]
+
+            else:
+                self.font_var.set(
+                    self.current_font
+                )
+
+                self.size_var.set(
+                    str(self.current_size)
+                )
+
+            self.bold_button.configure(
+                relief="sunken"
+                if self.bold
+                else "raised"
             )
 
-            self.size_var.set(
-                str(fmt["size"])
+            self.italic_button.configure(
+                relief="sunken"
+                if self.italic
+                else "raised"
             )
 
-            self.current_color = fmt["color"]
+            self.underline_button.configure(
+                relief="sunken"
+                if self.underline
+                else "raised"
+            )
+
+            self.strike_button.configure(
+                relief="sunken"
+                if self.strike
+                else "raised"
+            )
 
             self.color_button.configure(
-                bg=fmt["color"]
+                fg=self.current_color
             )
+
+            self.update_status()
+
+        except tk.TclError:
+            pass
+
+    def cursor_changed(self, event=None):
+        try:
+            insert = self.text.index("insert")
+
+            fmt = self.get_format_at(
+                insert
+            )
+
+            self.current_font = fmt["font"]
+            self.current_size = fmt["size"]
+            self.current_color = fmt["color"]
 
             self.bold = fmt["bold"]
             self.italic = fmt["italic"]
             self.underline = fmt["underline"]
             self.strike = fmt["strike"]
 
-        else:
-            self.font_var.set(
-                self.current_font
-            )
-
-            self.size_var.set(
-                str(self.current_size)
-            )
-
-            self.color_button.configure(
-                bg=self.current_color
-            )
-
-        # Update button relief
-        self.bold_button.configure(
-            relief="sunken" if self.bold else "raised"
-        )
-
-        self.italic_button.configure(
-            relief="sunken" if self.italic else "raised"
-        )
-
-        self.underline_button.configure(
-            relief="sunken" if self.underline else "raised"
-        )
-
-        self.strike_button.configure(
-            relief="sunken" if self.strike else "raised"
-        )
-
-    # =============================================================
-    # KEYBOARD / TYPING
-    # =============================================================
-
-    def handle_keypress(self, event):
-        """
-        Make newly typed text use the current formatting.
-        """
-
-        # Ctrl / Alt combinations are handled elsewhere.
-        if event.state & 0x4:
-            return
-
-        # Alt
-        if event.state & 0x8:
-            return
-
-        # Printable characters
-        if event.char and event.char.isprintable():
-
-            tag = self.create_format_tag(
-                self.get_current_format()
-            )
-
-            try:
-                self.text.edit_separator()
-
-                self.text.insert(
-                    "insert",
-                    event.char,
-                    tag
-                )
-
-                self.modified = True
-                self.update_title()
-
-                return "break"
-
-            except tk.TclError:
-                return
-
-        # Tab
-        if event.keysym == "Tab":
-            tag = self.create_format_tag(
-                self.get_current_format()
-            )
-
-            self.text.insert(
-                "insert",
-                "\t",
-                tag
-            )
-
-            self.modified = True
-            self.update_title()
-
-            return "break"
-
-        # Enter
-        if event.keysym == "Return":
-
-            tag = self.create_format_tag(
-                self.get_current_format()
-            )
-
-            self.text.insert(
-                "insert",
-                "\n",
-                tag
-            )
-
-            self.modified = True
-            self.update_title()
-
-            self.apply_alignment_to_current_line()
-
-            return "break"
-
-    def editor_key_release(self, event=None):
-        self.update_toolbar()
-
-        try:
-            line, column = self.text.index(
-                "insert"
-            ).split(".")
-
-            self.status_var.set(
-                f"Line {line}, Column {int(column) + 1}"
-            )
-
-        except Exception:
+        except tk.TclError:
             pass
 
-    def cursor_changed(self, event=None):
         self.remember_selection()
+        self.update_toolbar()
 
-    # =============================================================
-    # SHORTCUTS
-    # =============================================================
+    # ============================================================
+    # EDIT OPERATIONS
+    # ============================================================
 
-    def bind_shortcuts(self):
-        self.root.bind_all(
-            "<Control-n>",
-            lambda e: self.new_document()
+    def cut(self):
+        self.copy()
+
+        try:
+            self.text.delete(
+                "sel.first",
+                "sel.last"
+            )
+            self.modified = True
+        except tk.TclError:
+            pass
+
+    def copy(self):
+        try:
+            selected = self.text.get(
+                "sel.first",
+                "sel.last"
+            )
+
+            self.root.clipboard_clear()
+            self.root.clipboard_append(
+                selected
+            )
+
+        except tk.TclError:
+            pass
+
+    def paste(self):
+        try:
+            data = self.root.clipboard_get()
+
+            self.text.insert(
+                "insert",
+                data
+            )
+
+            self.modified = True
+
+        except tk.TclError:
+            pass
+
+    def select_all(self):
+        self.text.tag_add(
+            "sel",
+            "1.0",
+            "end-1c"
         )
 
-        self.root.bind_all(
-            "<Control-o>",
-            lambda e: self.open_document()
-        )
+        self.last_selection_start = "1.0"
+        self.last_selection_end = "end-1c"
 
-        self.root.bind_all(
-            "<Control-s>",
-            lambda e: self.save_document()
-        )
-
-        self.root.bind_all(
-            "<Control-Shift-S>",
-            lambda e: self.save_as()
-        )
-
-        self.root.bind_all(
-            "<Control-p>",
-            lambda e: self.print_document()
-        )
-
-        self.root.bind_all(
-            "<Control-z>",
-            lambda e: self.undo()
-        )
-
-        self.root.bind_all(
-            "<Control-y>",
-            lambda e: self.redo()
-        )
-
-        self.root.bind_all(
-            "<Control-x>",
-            lambda e: self.cut()
-        )
-
-        self.root.bind_all(
-            "<Control-c>",
-            lambda e: self.copy()
-        )
-
-        self.root.bind_all(
-            "<Control-v>",
-            lambda e: self.paste()
-        )
-
-        self.root.bind_all(
-            "<Control-a>",
-            lambda e: self.select_all()
-        )
-
-        self.root.bind_all(
-            "<Control-f>",
-            lambda e: self.show_find()
-        )
-
-        self.root.bind_all(
-            "<Control-h>",
-            lambda e: self.show_replace()
-        )
-
-        self.root.bind_all(
-            "<Control-b>",
-            lambda e: self.toggle_bold()
-        )
-
-        self.root.bind_all(
-            "<Control-i>",
-            lambda e: self.toggle_italic()
-        )
-
-        self.root.bind_all(
-            "<Control-u>",
-            lambda e: self.toggle_underline()
-        )
-
-    # =============================================================
-    # EDIT COMMANDS
-    # =============================================================
+        self.text.focus_set()
 
     def undo(self):
         try:
             self.text.edit_undo()
             self.modified = True
             self.update_title()
-            self.update_toolbar()
         except tk.TclError:
             pass
 
@@ -1502,111 +1490,296 @@ class PowerEdit:
             self.text.edit_redo()
             self.modified = True
             self.update_title()
-            self.update_toolbar()
         except tk.TclError:
             pass
 
-    def cut(self):
-        self.copy()
+    # ============================================================
+    # FIND / REPLACE
+    # ============================================================
 
-        try:
-            start, end = self.get_selection_range()
+    def show_find(self):
+        self.show_find_replace(False)
 
-            if start and end:
-                self.text.delete(
-                    start,
-                    end
+    def show_replace(self):
+        self.show_find_replace(True)
+
+    def show_find_replace(self, replace_mode=False):
+        if self.find_window is not None:
+            try:
+                self.find_window.destroy()
+            except tk.TclError:
+                pass
+
+        self.find_window = tk.Toplevel(
+            self.root
+        )
+
+        self.find_window.title(
+            "Replace" if replace_mode else "Find"
+        )
+
+        self.find_window.transient(
+            self.root
+        )
+
+        self.find_window.resizable(
+            False,
+            False
+        )
+
+        frame = tk.Frame(
+            self.find_window,
+            padx=10,
+            pady=10
+        )
+        frame.pack()
+
+        tk.Label(
+            frame,
+            text="Find:"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=3
+        )
+
+        find_var = tk.StringVar()
+
+        find_entry = ttk.Entry(
+            frame,
+            textvariable=find_var,
+            width=35
+        )
+
+        find_entry.grid(
+            row=0,
+            column=1,
+            padx=5,
+            pady=3
+        )
+
+        replace_var = tk.StringVar()
+
+        if replace_mode:
+            tk.Label(
+                frame,
+                text="Replace:"
+            ).grid(
+                row=1,
+                column=0,
+                sticky="w",
+                pady=3
+            )
+
+            replace_entry = ttk.Entry(
+                frame,
+                textvariable=replace_var,
+                width=35
+            )
+
+            replace_entry.grid(
+                row=1,
+                column=1,
+                padx=5,
+                pady=3
+            )
+
+        def find_next():
+            target = find_var.get()
+
+            if not target:
+                return
+
+            start = self.text.index(
+                "insert"
+            )
+
+            position = self.text.search(
+                target,
+                start,
+                stopindex=tk.END,
+                nocase=False
+            )
+
+            if not position:
+                position = self.text.search(
+                    target,
+                    "1.0",
+                    stopindex=tk.END,
+                    nocase=False
                 )
 
-                self.last_selection_start = None
-                self.last_selection_end = None
-
-                self.modified = True
-                self.update_title()
-
-        except tk.TclError:
-            pass
-
-    def copy(self):
-        try:
-            start, end = self.get_selection_range()
-
-            if start and end:
-                data = self.text.get(
-                    start,
-                    end
+            if position:
+                end = self.text.index(
+                    f"{position} + {len(target)}c"
                 )
 
-                self.root.clipboard_clear()
-                self.root.clipboard_append(data)
+                self.text.tag_remove(
+                    "sel",
+                    "1.0",
+                    tk.END
+                )
 
-        except tk.TclError:
-            pass
-
-    def paste(self):
-        try:
-            data = self.root.clipboard_get()
-        except tk.TclError:
-            return
-
-        try:
-            start, end = self.get_selection_range()
-
-            if start and end:
-                self.text.delete(
-                    start,
+                self.text.tag_add(
+                    "sel",
+                    position,
                     end
                 )
 
                 self.text.mark_set(
                     "insert",
-                    start
+                    end
                 )
 
-        except tk.TclError:
-            pass
+                self.text.see(position)
 
-        tag = self.create_format_tag(
-            self.get_current_format()
-        )
+        def replace_one():
+            target = find_var.get()
 
-        self.text.insert(
-            "insert",
-            data,
-            tag
-        )
+            if not target:
+                return
 
-        self.modified = True
-        self.update_title()
-        self.update_toolbar()
+            replacement = replace_var.get()
 
-    def select_all(self):
-        try:
-            self.text.tag_add(
-                "sel",
+            try:
+                start = self.text.index(
+                    "sel.first"
+                )
+                end = self.text.index(
+                    "sel.last"
+                )
+
+                selected = self.text.get(
+                    start,
+                    end
+                )
+
+                if selected == target:
+                    self.text.delete(
+                        start,
+                        end
+                    )
+
+                    self.text.insert(
+                        start,
+                        replacement
+                    )
+
+                    self.modified = True
+
+                find_next()
+
+            except tk.TclError:
+                find_next()
+
+        def replace_all():
+            target = find_var.get()
+
+            if not target:
+                return
+
+            replacement = replace_var.get()
+
+            content = self.text.get(
                 "1.0",
-                "end-1c"
+                tk.END
             )
 
-            self.text.mark_set(
-                "insert",
-                "1.0"
+            content = content.replace(
+                target,
+                replacement
             )
 
-            self.last_selection_start = "1.0"
-            self.last_selection_end = "end-1c"
+            self.text.delete(
+                "1.0",
+                tk.END
+            )
 
-            self.text.focus_set()
+            self.text.insert(
+                "1.0",
+                content
+            )
 
-        except tk.TclError:
-            pass
+            self.modified = True
+            self.update_title()
 
-    # =============================================================
-    # NEW DOCUMENT
-    # =============================================================
+        buttons = tk.Frame(frame)
+        buttons.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            pady=(8, 0)
+        )
+
+        ttk.Button(
+            buttons,
+            text="Find Next",
+            command=find_next
+        ).pack(
+            side="left",
+            padx=3
+        )
+
+        if replace_mode:
+            ttk.Button(
+                buttons,
+                text="Replace",
+                command=replace_one
+            ).pack(
+                side="left",
+                padx=3
+            )
+
+            ttk.Button(
+                buttons,
+                text="Replace All",
+                command=replace_all
+            ).pack(
+                side="left",
+                padx=3
+            )
+
+        ttk.Button(
+            buttons,
+            text="Close",
+            command=self.find_window.destroy
+        ).pack(
+            side="left",
+            padx=3
+        )
+
+        find_entry.focus_set()
+
+        self.find_window.bind(
+            "<Return>",
+            lambda e: find_next()
+        )
+
+    # ============================================================
+    # DOCUMENT MANAGEMENT
+    # ============================================================
+
+    def confirm_save(self):
+        if not self.modified:
+            return True
+
+        result = messagebox.askyesnocancel(
+            "Save Changes",
+            "The document has been modified.\n\n"
+            "Do you want to save your changes?"
+        )
+
+        if result is None:
+            return False
+
+        if result:
+            return self.save_document()
+
+        return True
 
     def new_document(self):
-        if not self.confirm_discard():
+        if not self.confirm_save():
             return
 
         self.text.delete(
@@ -1614,32 +1787,27 @@ class PowerEdit:
             tk.END
         )
 
-        self.current_file = None
+        self.filename = None
         self.modified = False
 
-        self.current_font = "Arial"
-        self.current_size = 12
-        self.current_color = "#000000"
+        self.format_tags.clear()
+
+        self.current_font = self.DEFAULT_FONT
+        self.current_size = self.DEFAULT_SIZE
+        self.current_color = self.DEFAULT_COLOR
 
         self.bold = False
         self.italic = False
         self.underline = False
         self.strike = False
 
-        self.last_selection_start = None
-        self.last_selection_end = None
-
-        self.text.edit_reset()
-
-        self.update_toolbar()
         self.update_title()
+        self.update_toolbar()
 
-    # =============================================================
-    # OPEN
-    # =============================================================
+        self.text.focus_set()
 
     def open_document(self):
-        if not self.confirm_discard():
+        if not self.confirm_save():
             return
 
         filename = filedialog.askopenfilename(
@@ -1655,12 +1823,39 @@ class PowerEdit:
             return
 
         try:
-            if filename.lower().endswith(".rtf"):
-                self.load_rtf(filename)
-            else:
-                self.load_txt(filename)
+            if filename.lower().endswith(
+                ".rtf"
+            ):
+                with open(
+                    filename,
+                    "r",
+                    encoding="utf-8",
+                    errors="ignore"
+                ) as file:
+                    data = file.read()
 
-            self.current_file = filename
+                self.load_rtf(data)
+
+            else:
+                with open(
+                    filename,
+                    "r",
+                    encoding="utf-8",
+                    errors="replace"
+                ) as file:
+                    data = file.read()
+
+                self.text.delete(
+                    "1.0",
+                    tk.END
+                )
+
+                self.text.insert(
+                    "1.0",
+                    data
+                )
+
+            self.filename = filename
             self.modified = False
 
             self.update_title()
@@ -1668,65 +1863,16 @@ class PowerEdit:
         except Exception as exc:
             messagebox.showerror(
                 "Open Error",
-                f"Could not open the file:\n\n{exc}"
+                f"Could not open the file.\n\n{exc}"
             )
-
-    def load_txt(self, filename):
-        with open(
-            filename,
-            "r",
-            encoding="utf-8",
-            errors="replace"
-        ) as f:
-            data = f.read()
-
-        self.text.delete(
-            "1.0",
-            tk.END
-        )
-
-        tag = self.create_format_tag(
-            self.get_current_format()
-        )
-
-        self.text.insert(
-            "1.0",
-            data,
-            tag
-        )
-
-        self.text.edit_reset()
-
-    # =============================================================
-    # SAVE
-    # =============================================================
 
     def save_document(self):
-        if not self.current_file:
+        if not self.filename:
             return self.save_as()
 
-        try:
-            if self.current_file.lower().endswith(".rtf"):
-                self.save_rtf(
-                    self.current_file
-                )
-            else:
-                self.save_txt(
-                    self.current_file
-                )
-
-            self.modified = False
-            self.update_title()
-
-            return True
-
-        except Exception as exc:
-            messagebox.showerror(
-                "Save Error",
-                f"Could not save the file:\n\n{exc}"
-            )
-
-            return False
+        return self.save_to_file(
+            self.filename
+        )
 
     def save_as(self):
         filename = filedialog.asksaveasfilename(
@@ -1742,16 +1888,38 @@ class PowerEdit:
         if not filename:
             return False
 
+        return self.save_to_file(
+            filename
+        )
+
+    def save_to_file(self, filename):
         try:
-            if filename.lower().endswith(".txt"):
-                self.save_txt(filename)
+            if filename.lower().endswith(
+                ".rtf"
+            ):
+                content = self.export_rtf()
+
+                with open(
+                    filename,
+                    "w",
+                    encoding="utf-8"
+                ) as file:
+                    file.write(content)
+
             else:
-                if not filename.lower().endswith(".rtf"):
-                    filename += ".rtf"
+                content = self.text.get(
+                    "1.0",
+                    "end-1c"
+                )
 
-                self.save_rtf(filename)
+                with open(
+                    filename,
+                    "w",
+                    encoding="utf-8"
+                ) as file:
+                    file.write(content)
 
-            self.current_file = filename
+            self.filename = filename
             self.modified = False
 
             self.update_title()
@@ -1761,29 +1929,16 @@ class PowerEdit:
         except Exception as exc:
             messagebox.showerror(
                 "Save Error",
-                f"Could not save the file:\n\n{exc}"
+                f"Could not save the file.\n\n{exc}"
             )
 
             return False
 
-    def save_txt(self, filename):
-        data = self.text.get(
-            "1.0",
-            "end-1c"
-        )
-
-        with open(
-            filename,
-            "w",
-            encoding="utf-8"
-        ) as f:
-            f.write(data)
-
-    # =============================================================
+    # ============================================================
     # RTF EXPORT
-    # =============================================================
+    # ============================================================
 
-    def escape_rtf(self, text):
+    def rtf_escape(self, text):
         text = text.replace(
             "\\",
             "\\\\"
@@ -1799,49 +1954,32 @@ class PowerEdit:
             "\\}"
         )
 
+        text = text.replace(
+            "\t",
+            "\\tab "
+        )
+
         return text
-
-    def collect_rtf_fonts(self):
-        fonts = []
-
-        for tag, fmt in self.format_tags.items():
-            if fmt["font"] not in fonts:
-                fonts.append(fmt["font"])
-
-        if self.current_font not in fonts:
-            fonts.append(self.current_font)
-
-        if not fonts:
-            fonts = ["Arial"]
-
-        return fonts
 
     def collect_rtf_colors(self):
         colors = []
 
-        for tag, fmt in self.format_tags.items():
-            color = self.normalize_color(
-                fmt["color"]
-            )
+        for fmt in self.format_tags.values():
+            color = fmt["color"]
 
             if color not in colors:
                 colors.append(color)
 
-        if self.current_color not in colors:
-            colors.append(
-                self.current_color
+        if self.DEFAULT_COLOR not in colors:
+            colors.insert(
+                0,
+                self.DEFAULT_COLOR
             )
-
-        if not colors:
-            colors = ["#000000"]
 
         return colors
 
-    def rgb_from_hex(self, color):
-        color = self.normalize_color(color)
-
-        if color.startswith("#"):
-            color = color[1:]
+    def hex_to_rgb(self, color):
+        color = color.lstrip("#")
 
         if len(color) != 6:
             return 0, 0, 0
@@ -1855,220 +1993,267 @@ class PowerEdit:
         except ValueError:
             return 0, 0, 0
 
-    def save_rtf(self, filename):
-        fonts = self.collect_rtf_fonts()
+    def export_rtf(self):
         colors = self.collect_rtf_colors()
 
-        font_index = {
-            name: i
-            for i, name in enumerate(fonts)
-        }
+        color_table = [
+            r"{\colortbl ;"
+        ]
 
-        color_index = {
-            color: i + 1
-            for i, color in enumerate(colors)
-        }
+        for color in colors:
+            r, g, b = self.hex_to_rgb(
+                color
+            )
 
-        output = []
+            color_table.append(
+                f"\\red{r}\\green{g}\\blue{b};"
+            )
 
-        output.append(
-            r"{\rtf1\ansi\deff0"
-        )
+        color_table.append("}")
 
-        # Font table
-        output.append(
+        rtf = [
+            r"{\rtf1\ansi\deff0",
             r"{\fonttbl"
-        )
+        ]
 
-        for i, name in enumerate(fonts):
-            safe_name = name.replace(
+        fonts = []
+
+        for fmt in self.format_tags.values():
+            if fmt["font"] not in fonts:
+                fonts.append(
+                    fmt["font"]
+                )
+
+        if self.current_font not in fonts:
+            fonts.append(
+                self.current_font
+            )
+
+        for i, font in enumerate(fonts):
+            safe_font = font.replace(
                 "\\",
                 ""
             )
 
-            output.append(
-                f"{{\\f{i} {safe_name};}}"
+            rtf.append(
+                f"{{\\f{i} {safe_font};}}"
             )
 
-        output.append("}")
+        rtf.append("}")
 
-        # Color table
-        output.append(
-            r"{\colortbl;"
+        rtf.extend(
+            color_table
         )
 
-        for color in colors:
-            r, g, b = self.rgb_from_hex(
-                color
-            )
-
-            output.append(
-                f"\\red{r}"
-                f"\\green{g}"
-                f"\\blue{b};"
-            )
-
-        output.append("}")
-
-        output.append(
-            r"\viewkind4\uc1"
-        )
-
-        text_data = self.text.get(
+        # Export line by line.
+        lines = self.text.get(
             "1.0",
             "end-1c"
-        )
+        ).split("\n")
 
-        lines = text_data.split(
-            "\n"
-        )
+        position = "1.0"
 
-        for line_number, line in enumerate(lines, start=1):
+        for line_index, line in enumerate(lines):
+            # Determine list type.
+            line_start = f"{line_index + 1}.0"
 
-            index = f"{line_number}.0"
-
-            # Paragraph alignment
-            alignment = self.get_alignment_at(
-                index
+            bullet = line.startswith(
+                self.BULLET_PREFIX
             )
 
-            if alignment == "center":
-                output.append(r"\qc")
-            elif alignment == "right":
-                output.append(r"\qr")
+            number_match = self.NUMBER_PREFIX_RE.match(
+                line
+            )
+
+            if bullet:
+                rtf.append(
+                    r"\pntext\bullet\tab "
+                )
+                content_start = len(
+                    self.BULLET_PREFIX
+                )
+
+            elif number_match:
+                number = number_match.group(1)
+
+                rtf.append(
+                    rf"\pntext {number}.\tab "
+                )
+
+                content_start = len(
+                    number_match.group(0)
+                )
+
             else:
-                output.append(r"\ql")
+                content_start = 0
 
-            for char_offset, char in enumerate(line):
+            # Alignment
+            alignment = "left"
 
-                pos = f"{line_number}.{char_offset}"
+            tags = self.text.tag_names(
+                line_start
+            )
 
-                fmt = self.get_format_at(pos)
+            if "align_center" in tags:
+                alignment = "center"
 
-                fi = font_index.get(
-                    fmt["font"],
-                    0
+            elif "align_right" in tags:
+                alignment = "right"
+
+            if alignment == "center":
+                rtf.append(r"\qc ")
+
+            elif alignment == "right":
+                rtf.append(r"\qr ")
+
+            else:
+                rtf.append(r"\ql ")
+
+            # Export characters.
+            char_index = content_start
+
+            while char_index < len(line):
+                index = (
+                    f"{line_index + 1}."
+                    f"{char_index}"
                 )
 
-                ci = color_index.get(
-                    fmt["color"],
-                    1
+                fmt = self.get_format_at(
+                    index
                 )
 
-                output.append(
-                    f"\\f{fi}"
-                    f"\\fs{int(fmt['size'] * 2)}"
-                    f"\\cf{ci}"
+                font_index = 0
+
+                for i, font in enumerate(fonts):
+                    if font == fmt["font"]:
+                        font_index = i
+                        break
+
+                color_index = 0
+
+                for i, color in enumerate(colors):
+                    if color == fmt["color"]:
+                        color_index = i + 1
+                        break
+
+                rtf.append(
+                    f"\\f{font_index}"
                 )
 
-                output.append(
-                    "\\b" if fmt["bold"]
-                    else "\\b0"
+                rtf.append(
+                    f"\\fs{int(fmt['size']) * 2}"
                 )
 
-                output.append(
-                    "\\i" if fmt["italic"]
-                    else "\\i0"
-                )
-
-                output.append(
-                    "\\ul" if fmt["underline"]
-                    else "\\ul0"
-                )
-
-                output.append(
-                    "\\strike" if fmt["strike"]
-                    else "\\strike0"
-                )
-
-                if char == "\t":
-                    output.append(
-                        r"\tab "
+                if color_index:
+                    rtf.append(
+                        f"\\cf{color_index}"
                     )
 
-                elif char in (
-                    "\\",
-                    "{",
-                    "}"
-                ):
-                    output.append(
-                        self.escape_rtf(char)
+                if fmt["bold"]:
+                    rtf.append(
+                        r"\b"
                     )
 
-                else:
-                    code = ord(char)
+                if fmt["italic"]:
+                    rtf.append(
+                        r"\i"
+                    )
 
-                    if code > 127:
-                        signed = (
-                            code
-                            if code < 32768
-                            else code - 65536
-                        )
+                if fmt["underline"]:
+                    rtf.append(
+                        r"\ul"
+                    )
 
-                        output.append(
-                            f"\\u{signed}?"
-                        )
-                    else:
-                        output.append(char)
+                if fmt["strike"]:
+                    rtf.append(
+                        r"\strike"
+                    )
 
-            if line_number < len(lines):
-                output.append(
+                # Find the end of the same formatting run.
+                run_end = char_index + 1
+
+                while run_end < len(line):
+                    next_index = (
+                        f"{line_index + 1}."
+                        f"{run_end}"
+                    )
+
+                    next_fmt = self.get_format_at(
+                        next_index
+                    )
+
+                    if next_fmt != fmt:
+                        break
+
+                    run_end += 1
+
+                chunk = line[
+                    char_index:run_end
+                ]
+
+                rtf.append(
+                    self.rtf_escape(
+                        chunk
+                    )
+                )
+
+                # Reset character styles.
+                rtf.append(
+                    r"\b0\i0\ul0\strike0 "
+                )
+
+                char_index = run_end
+
+            if line_index < len(lines) - 1:
+                rtf.append(
                     r"\par "
                 )
 
-        output.append("}")
+        rtf.append("}")
 
-        with open(
-            filename,
-            "w",
-            encoding="ascii",
-            errors="ignore"
-        ) as f:
-            f.write(
-                "".join(output)
-            )
+        return "".join(rtf)
 
-    def get_alignment_at(self, index):
-        tags = self.text.tag_names(index)
-
-        if "align_center" in tags:
-            return "center"
-
-        if "align_right" in tags:
-            return "right"
-
-        return "left"
-
-    # =============================================================
+    # ============================================================
     # RTF IMPORT
-    # =============================================================
+    # ============================================================
 
-    def load_rtf(self, filename):
-        with open(
-            filename,
-            "r",
-            encoding="latin-1",
-            errors="replace"
-        ) as f:
-            rtf = f.read()
+    def load_rtf(self, data):
+        """
+        Basic RTF importer.
 
-        fonts = self.parse_rtf_fonts(
-            rtf
-        )
-
-        colors = self.parse_rtf_colors(
-            rtf
-        )
+        Supports:
+            - fonts
+            - sizes
+            - colors
+            - bold
+            - italic
+            - underline
+            - strike
+            - alignment
+            - basic bullet / numbered list markers
+        """
 
         self.text.delete(
             "1.0",
             tk.END
         )
 
+        font_names = self.parse_font_table(
+            data
+        )
+
+        colors = self.parse_color_table(
+            data
+        )
+
+        body = self.extract_rtf_body(
+            data
+        )
+
         state = {
-            "font": "Arial",
-            "size": 12,
-            "color": "#000000",
+            "font": self.DEFAULT_FONT,
+            "size": self.DEFAULT_SIZE,
+            "color": self.DEFAULT_COLOR,
             "bold": False,
             "italic": False,
             "underline": False,
@@ -2076,860 +2261,509 @@ class PowerEdit:
             "alignment": "left"
         }
 
-        if fonts:
-            state["font"] = fonts[0]
-
-        if colors:
-            state["color"] = colors[0]
-
-        stack = []
-
-        output_pos = "1.0"
+        output_position = "1.0"
 
         i = 0
 
-        while i < len(rtf):
+        while i < len(body):
+            char = body[i]
 
-            ch = rtf[i]
-
-            # Ignore RTF header/group braces
-            if ch == "{":
-                stack.append(
-                    state.copy()
+            if char == "\\":
+                command, consumed = self.read_rtf_command(
+                    body,
+                    i
                 )
 
-                i += 1
-                continue
-
-            if ch == "}":
-                if stack:
-                    state = stack.pop()
-
-                i += 1
-                continue
-
-            if ch == "\\":
-                i += 1
-
-                if i >= len(rtf):
-                    break
-
-                # Escaped special chars
-                if rtf[i] in "\\{}":
-                    self.insert_rtf_text(
-                        rtf[i],
-                        state
+                if command is not None:
+                    self.process_rtf_command(
+                        command,
+                        state,
+                        font_names,
+                        colors
                     )
 
-                    i += 1
+                    i += consumed
                     continue
 
-                # Hex encoded character
-                if rtf[i] == "'":
-                    if i + 2 < len(rtf):
-                        hex_value = rtf[
-                            i + 1:i + 3
-                        ]
-
-                        try:
-                            char = bytes.fromhex(
-                                hex_value
-                            ).decode(
-                                "cp1252",
-                                errors="replace"
-                            )
-
-                            self.insert_rtf_text(
-                                char,
-                                state
-                            )
-
-                            i += 3
-                            continue
-
-                        except ValueError:
-                            pass
-
-                # Read control word
-                match = re.match(
-                    r"([a-zA-Z]+)(-?\d+)? ?",
-                    rtf[i:]
-                )
-
-                if not match:
-                    i += 1
-                    continue
-
-                word = match.group(1)
-                number = match.group(2)
-
-                consumed = match.end()
-                i += consumed
-
-                if word == "par":
-                    self.insert_rtf_text(
-                        "\n",
-                        state
-                    )
-
-                elif word == "line":
-                    self.insert_rtf_text(
-                        "\n",
-                        state
-                    )
-
-                elif word == "tab":
-                    self.insert_rtf_text(
-                        "\t",
-                        state
-                    )
-
-                elif word == "b":
-                    state["bold"] = (
-                        number != "0"
-                    )
-
-                elif word == "i":
-                    state["italic"] = (
-                        number != "0"
-                    )
-
-                elif word == "ul":
-                    state["underline"] = True
-
-                elif word == "ulnone":
-                    state["underline"] = False
-
-                elif word == "strike":
-                    state["strike"] = (
-                        number != "0"
-                    )
-
-                elif word == "f" and number is not None:
-                    fi = int(number)
-
-                    if 0 <= fi < len(fonts):
-                        state["font"] = fonts[fi]
-
-                elif word == "fs" and number:
-                    state["size"] = max(
-                        1,
-                        int(number) // 2
-                    )
-
-                elif word == "cf" and number:
-                    ci = int(number) - 1
-
-                    if 0 <= ci < len(colors):
-                        state["color"] = colors[ci]
-
-                elif word == "qc":
-                    state["alignment"] = "center"
-
-                elif word == "qr":
-                    state["alignment"] = "right"
-
-                elif word == "ql":
-                    state["alignment"] = "left"
-
-                elif word == "u" and number:
-                    try:
-                        value = int(number)
-
-                        if value < 0:
-                            value += 65536
-
-                        self.insert_rtf_text(
-                            chr(value),
-                            state
-                        )
-
-                        # Skip optional replacement char
-                        if (
-                            i < len(rtf)
-                            and rtf[i] == "?"
-                        ):
-                            i += 1
-
-                    except ValueError:
-                        pass
-
+            if char == "{":
+                i += 1
                 continue
 
-            # Plain text
-            if ch not in "\r\n":
-                self.insert_rtf_text(
-                    ch,
-                    state
-                )
+            if char == "}":
+                i += 1
+                continue
+
+            if char == "\r":
+                i += 1
+                continue
+
+            if char == "\n":
+                i += 1
+                continue
+
+            # Insert character.
+            start = self.text.index(
+                "end-1c"
+            )
+
+            self.text.insert(
+                tk.END,
+                char
+            )
+
+            end = self.text.index(
+                "end-1c"
+            )
+
+            fmt = {
+                "font": state["font"],
+                "size": state["size"],
+                "color": state["color"],
+                "bold": state["bold"],
+                "italic": state["italic"],
+                "underline": state["underline"],
+                "strike": state["strike"]
+            }
+
+            tag = self.create_format_tag(
+                fmt
+            )
+
+            self.text.tag_add(
+                tag,
+                start,
+                end
+            )
+
+            alignment_tag = {
+                "left": "align_left",
+                "center": "align_center",
+                "right": "align_right"
+            }.get(
+                state["alignment"],
+                "align_left"
+            )
+
+            self.text.tag_add(
+                alignment_tag,
+                start,
+                end
+            )
 
             i += 1
 
-        self.text.edit_reset()
+        # Convert basic RTF list markers into PowerEdit list prefixes.
+        self.convert_imported_list_markers()
 
-        self.update_toolbar()
+    def parse_font_table(self, data):
+        fonts = []
 
-    def insert_rtf_text(self, text, state):
-        fmt = {
-            "font": state["font"],
-            "size": state["size"],
-            "color": state["color"],
-            "bold": state["bold"],
-            "italic": state["italic"],
-            "underline": state["underline"],
-            "strike": state["strike"],
-        }
-
-        tag = self.create_format_tag(
-            fmt
-        )
-
-        start = self.text.index(
-            "end-1c"
-        )
-
-        self.text.insert(
-            tk.END,
-            text,
-            tag
-        )
-
-        end = self.text.index(
-            "end-1c"
-        )
-
-        # Apply paragraph alignment
-        line_start = self.text.index(
-            f"{start} linestart"
-        )
-
-        line_end = self.text.index(
-            f"{end} lineend"
-        )
-
-        align_tag = (
-            f"align_{state['alignment']}"
-        )
-
-        self.text.tag_configure(
-            align_tag,
-            justify=state["alignment"]
-        )
-
-        self.text.tag_add(
-            align_tag,
-            line_start,
-            line_end
-        )
-
-    def parse_rtf_fonts(self, rtf):
         match = re.search(
             r"{\\fonttbl(.*?)}",
-            rtf,
+            data,
             re.DOTALL
         )
 
         if not match:
-            return ["Arial"]
+            return fonts
 
         table = match.group(1)
 
-        fonts = []
-
-        for m in re.finditer(
-            r"\\f\d+[^;]*\s([^;{}]+);",
+        for match in re.finditer(
+            r"\\f(\d+)\s+([^;{}]+);",
             table
         ):
-            name = m.group(1).strip()
+            index = int(
+                match.group(1)
+            )
 
-            if name:
-                fonts.append(name)
+            name = match.group(2).strip()
 
-        if not fonts:
-            fonts = ["Arial"]
+            while len(fonts) <= index:
+                fonts.append(
+                    self.DEFAULT_FONT
+                )
+
+            fonts[index] = name
 
         return fonts
 
-    def parse_rtf_colors(self, rtf):
+    def parse_color_table(self, data):
+        colors = [
+            self.DEFAULT_COLOR
+        ]
+
         match = re.search(
-            r"{\\colortbl;(.*?)}",
-            rtf,
+            r"{\\colortbl\s*(.*?)}",
+            data,
             re.DOTALL
         )
 
         if not match:
-            return ["#000000"]
+            return colors
 
         table = match.group(1)
 
-        colors = []
+        entries = table.split(";")
 
-        for entry in table.split(";"):
-            r_match = re.search(
+        for entry in entries:
+            r = re.search(
                 r"\\red(\d+)",
                 entry
             )
 
-            g_match = re.search(
+            g = re.search(
                 r"\\green(\d+)",
                 entry
             )
 
-            b_match = re.search(
+            b = re.search(
                 r"\\blue(\d+)",
                 entry
             )
 
-            if (
-                r_match
-                and g_match
-                and b_match
-            ):
-                r = int(r_match.group(1))
-                g = int(g_match.group(1))
-                b = int(b_match.group(1))
-
-                colors.append(
-                    f"#{r:02x}{g:02x}{b:02x}"
+            if r and g and b:
+                color = (
+                    f"#{int(r.group(1)):02x}"
+                    f"{int(g.group(1)):02x}"
+                    f"{int(b.group(1)):02x}"
                 )
 
-        if not colors:
-            colors = ["#000000"]
+                colors.append(color)
 
         return colors
 
-    # =============================================================
-    # FIND
-    # =============================================================
+    def extract_rtf_body(self, data):
+        start = data.find(
+            "\\viewkind"
+        )
 
-    def show_find(self):
-        if (
-            self.find_window is not None
-            and self.find_window.winfo_exists()
-        ):
-            self.find_window.lift()
+        if start == -1:
+            start = data.find(
+                "\\ansi"
+            )
+
+        if start == -1:
+            return data
+
+        body = data[start:]
+
+        # Remove font/color table sections.
+        body = re.sub(
+            r"{\\fonttbl.*?}",
+            "",
+            body,
+            flags=re.DOTALL
+        )
+
+        body = re.sub(
+            r"{\\colortbl.*?}",
+            "",
+            body,
+            flags=re.DOTALL
+        )
+
+        return body
+
+    def read_rtf_command(self, text, index):
+        i = index + 1
+
+        if i >= len(text):
+            return None, 1
+
+        if text[i] in "\\{}":
+            return text[i], 2
+
+        match = re.match(
+            r"([a-zA-Z]+)(-?\d+)? ?",
+            text[i:]
+        )
+
+        if not match:
+            return None, 1
+
+        word = match.group(1)
+        number = match.group(2)
+
+        consumed = 1 + len(
+            match.group(0)
+        )
+
+        if number is not None:
+            return (
+                f"{word}{number}",
+                consumed
+            )
+
+        return (
+            word,
+            consumed
+        )
+
+    def process_rtf_command(
+        self,
+        command,
+        state,
+        fonts,
+        colors
+    ):
+        if command.startswith("f") and command[1:].isdigit():
+            index = int(
+                command[1:]
+            )
+
+            if 0 <= index < len(fonts):
+                state["font"] = fonts[index]
+
             return
 
-        window = tk.Toplevel(self.root)
-        window.title("Find")
-        window.resizable(False, False)
+        if command.startswith("fs"):
+            try:
+                half_points = int(
+                    command[2:]
+                )
 
-        self.find_window = window
+                state["size"] = max(
+                    1,
+                    half_points // 2
+                )
 
-        frame = ttk.Frame(
-            window,
-            padding=10
-        )
-        frame.pack(fill="both")
+            except ValueError:
+                pass
 
-        ttk.Label(
-            frame,
-            text="Find:"
-        ).grid(
-            row=0,
-            column=0,
-            padx=5,
-            pady=5
-        )
-
-        entry = ttk.Entry(
-            frame,
-            width=35
-        )
-        entry.grid(
-            row=0,
-            column=1,
-            padx=5,
-            pady=5
-        )
-
-        ttk.Button(
-            frame,
-            text="Find Next",
-            command=lambda: self.find_next(
-                entry.get()
-            )
-        ).grid(
-            row=1,
-            column=0,
-            columnspan=2,
-            pady=5
-        )
-
-        entry.focus_set()
-
-        window.protocol(
-            "WM_DELETE_WINDOW",
-            window.destroy
-        )
-
-    def find_next(self, query):
-        if not query:
             return
 
-        try:
-            start = self.text.index(
-                "insert"
-            )
-
-            pos = self.text.search(
-                query,
-                start,
-                stopindex=tk.END,
-                nocase=True
-            )
-
-            if not pos:
-                pos = self.text.search(
-                    query,
-                    "1.0",
-                    stopindex=tk.END,
-                    nocase=True
+        if command.startswith("cf"):
+            try:
+                index = int(
+                    command[2:]
                 )
 
-            if pos:
-                end = self.text.index(
-                    f"{pos} + {len(query)} chars"
-                )
+                if 0 <= index < len(colors):
+                    state["color"] = colors[index]
 
-                self.text.tag_remove(
-                    "sel",
-                    "1.0",
-                    tk.END
-                )
+            except ValueError:
+                pass
 
-                self.text.tag_add(
-                    "sel",
-                    pos,
-                    end
-                )
-
-                self.text.mark_set(
-                    "insert",
-                    end
-                )
-
-                self.text.see(pos)
-
-                self.last_selection_start = pos
-                self.last_selection_end = end
-
-        except tk.TclError:
-            pass
-
-    # =============================================================
-    # REPLACE
-    # =============================================================
-
-    def show_replace(self):
-        window = tk.Toplevel(self.root)
-        window.title("Find and Replace")
-        window.resizable(False, False)
-
-        frame = ttk.Frame(
-            window,
-            padding=10
-        )
-        frame.pack()
-
-        ttk.Label(
-            frame,
-            text="Find:"
-        ).grid(
-            row=0,
-            column=0,
-            sticky="w",
-            padx=5,
-            pady=5
-        )
-
-        find_entry = ttk.Entry(
-            frame,
-            width=35
-        )
-        find_entry.grid(
-            row=0,
-            column=1,
-            padx=5,
-            pady=5
-        )
-
-        ttk.Label(
-            frame,
-            text="Replace with:"
-        ).grid(
-            row=1,
-            column=0,
-            sticky="w",
-            padx=5,
-            pady=5
-        )
-
-        replace_entry = ttk.Entry(
-            frame,
-            width=35
-        )
-        replace_entry.grid(
-            row=1,
-            column=1,
-            padx=5,
-            pady=5
-        )
-
-        ttk.Button(
-            frame,
-            text="Find Next",
-            command=lambda: self.find_next(
-                find_entry.get()
-            )
-        ).grid(
-            row=2,
-            column=0,
-            pady=8
-        )
-
-        ttk.Button(
-            frame,
-            text="Replace",
-            command=lambda: self.replace_current(
-                find_entry.get(),
-                replace_entry.get()
-            )
-        ).grid(
-            row=2,
-            column=1,
-            pady=8
-        )
-
-        ttk.Button(
-            frame,
-            text="Replace All",
-            command=lambda: self.replace_all(
-                find_entry.get(),
-                replace_entry.get()
-            )
-        ).grid(
-            row=3,
-            column=0,
-            columnspan=2,
-            pady=5
-        )
-
-        find_entry.focus_set()
-
-    def replace_current(self, find, replace):
-        if not find:
             return
 
-        start, end = self.get_selection_range()
-
-        if not start or not end:
-            self.find_next(find)
+        if command == "b":
+            state["bold"] = True
             return
 
-        selected = self.text.get(
-            start,
-            end
-        )
-
-        if selected.lower() != find.lower():
-            self.find_next(find)
+        if command == "b0":
+            state["bold"] = False
             return
+
+        if command == "i":
+            state["italic"] = True
+            return
+
+        if command == "i0":
+            state["italic"] = False
+            return
+
+        if command == "ul":
+            state["underline"] = True
+            return
+
+        if command == "ul0":
+            state["underline"] = False
+            return
+
+        if command == "strike":
+            state["strike"] = True
+            return
+
+        if command == "strike0":
+            state["strike"] = False
+            return
+
+        if command == "ql":
+            state["alignment"] = "left"
+            return
+
+        if command == "qc":
+            state["alignment"] = "center"
+            return
+
+        if command == "qr":
+            state["alignment"] = "right"
+            return
+
+        if command == "par":
+            self.text.insert(
+                tk.END,
+                "\n"
+            )
+            return
+
+        if command == "tab":
+            self.text.insert(
+                tk.END,
+                "\t"
+            )
+            return
+
+    def convert_imported_list_markers(self):
+        """
+        Detects simple RTF list markers that were exported by
+        PowerEdit and converts them into normal PowerEdit prefixes.
+        """
+
+        lines = self.text.get(
+            "1.0",
+            "end-1c"
+        ).split("\n")
 
         self.text.delete(
-            start,
-            end
+            "1.0",
+            tk.END
         )
 
-        tag = self.create_format_tag(
-            self.get_current_format()
-        )
+        for i, line in enumerate(lines):
+            # Basic detection.
+            if line.startswith(
+                "• "
+            ):
+                pass
 
-        self.text.insert(
-            start,
-            replace,
-            tag
-        )
-
-        self.modified = True
-        self.update_title()
-
-    def replace_all(self, find, replace):
-        if not find:
-            return
-
-        count = 0
-        start = "1.0"
-
-        while True:
-            pos = self.text.search(
-                find,
-                start,
-                stopindex=tk.END,
-                nocase=True
-            )
-
-            if not pos:
-                break
-
-            end = self.text.index(
-                f"{pos} + {len(find)} chars"
-            )
-
-            self.text.delete(
-                pos,
-                end
-            )
-
-            tag = self.create_format_tag(
-                self.get_current_format()
-            )
+            elif re.match(
+                r"^\d+\.\s",
+                line
+            ):
+                pass
 
             self.text.insert(
-                pos,
-                replace,
-                tag
+                tk.END,
+                line
             )
 
-            start = self.text.index(
-                f"{pos} + {len(replace)} chars"
-            )
+            if i < len(lines) - 1:
+                self.text.insert(
+                    tk.END,
+                    "\n"
+                )
 
-            count += 1
-
-        if count:
-            self.modified = True
-            self.update_title()
-
-            messagebox.showinfo(
-                "Replace All",
-                f"Replaced {count} occurrence(s)."
-            )
-
-    # =============================================================
+    # ============================================================
     # PRINT
-    # =============================================================
+    # ============================================================
 
     def print_document(self):
-        temp_txt = None
+        content = self.text.get(
+            "1.0",
+            "end-1c"
+        )
+
+        if not content.strip():
+            messagebox.showinfo(
+                "Print",
+                "There is nothing to print."
+            )
+            return
 
         try:
-            if self.current_file:
-                if self.current_file.lower().endswith(
-                    ".txt"
-                ):
-                    print_file = self.current_file
-                else:
-                    # Create temporary text file
-                    temp_txt = os.path.join(
-                        os.path.dirname(
-                            self.current_file
-                        ),
-                        "__poweredit_print.txt"
-                    )
+            import tempfile
+            import subprocess
 
-                    with open(
-                        temp_txt,
-                        "w",
-                        encoding="utf-8"
-                    ) as f:
-                        f.write(
-                            self.text.get(
-                                "1.0",
-                                "end-1c"
-                            )
-                        )
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".txt",
+                delete=False,
+                encoding="utf-8"
+            ) as file:
+                file.write(content)
+                filename = file.name
 
-                    print_file = temp_txt
+            subprocess.run(
+                [
+                    "lpr",
+                    filename
+                ],
+                check=False
+            )
 
-            else:
-                temp_txt = os.path.join(
-                    os.path.abspath("."),
-                    "__poweredit_print.txt"
-                )
+            messagebox.showinfo(
+                "Print",
+                "The document was sent to the system printer."
+            )
 
-                with open(
-                    temp_txt,
-                    "w",
-                    encoding="utf-8"
-                ) as f:
-                    f.write(
-                        self.text.get(
-                            "1.0",
-                            "end-1c"
-                        )
-                    )
-
-                print_file = temp_txt
-
-            if sys.platform.startswith("win"):
-                os.startfile(
-                    print_file,
-                    "print"
-                )
-
-            elif sys.platform == "darwin":
-                subprocess.run(
-                    ["lp", print_file],
-                    check=False
-                )
-
-            else:
-                subprocess.run(
-                    ["lp", print_file],
-                    check=False
-                )
+            try:
+                os.unlink(filename)
+            except OSError:
+                pass
 
         except Exception as exc:
             messagebox.showerror(
                 "Print Error",
                 f"Could not print the document.\n\n{exc}"
-
             )
 
-        finally:
-            if temp_txt and os.path.exists(
-                temp_txt
-            ):
-                try:
-                    os.remove(temp_txt)
-                except OSError:
-                    pass
+    # ============================================================
+    # MODIFIED / TITLE
+    # ============================================================
 
-    # =============================================================
-    # CONTEXT MENU
-    # =============================================================
+    def on_modified(self, event=None):
+        try:
+            if self.text.edit_modified():
+                self.modified = True
+                self.update_title()
+                self.text.edit_modified(False)
 
-    def show_context_menu(self, event):
-        menu = tk.Menu(
-            self.root,
-            tearoff=False
-        )
-
-        menu.add_command(
-            label="Undo",
-            command=self.undo
-        )
-
-        menu.add_command(
-            label="Redo",
-            command=self.redo
-        )
-
-        menu.add_separator()
-
-        menu.add_command(
-            label="Cut",
-            command=self.cut
-        )
-
-        menu.add_command(
-            label="Copy",
-            command=self.copy
-        )
-
-        menu.add_command(
-            label="Paste",
-            command=self.paste
-        )
-
-        menu.add_command(
-            label="Select All",
-            command=self.select_all
-        )
-
-        menu.add_separator()
-
-        menu.add_command(
-            label="Bold",
-            command=self.toggle_bold
-        )
-
-        menu.add_command(
-            label="Italic",
-            command=self.toggle_italic
-        )
-
-        menu.add_command(
-            label="Underline",
-            command=self.toggle_underline
-        )
-
-        menu.tk_popup(
-            event.x_root,
-            event.y_root
-        )
-
-    # =============================================================
-    # WINDOW / TITLE
-    # =============================================================
+        except tk.TclError:
+            pass
 
     def update_title(self):
-        if self.current_file:
-            name = os.path.basename(
-                self.current_file
-            )
-        else:
-            name = "Untitled"
+        name = (
+            os.path.basename(self.filename)
+            if self.filename
+            else "Untitled"
+        )
 
-        marker = "*" if self.modified else ""
+        marker = "* " if self.modified else ""
 
         self.root.title(
             f"{marker}{name} - PowerEdit"
         )
 
-    def confirm_discard(self):
-        if not self.modified:
-            return True
+    def update_status(self):
+        try:
+            line, column = self.text.index(
+                "insert"
+            ).split(".")
 
-        answer = messagebox.askyesnocancel(
-            "PowerEdit",
-            "The document has unsaved changes.\n\n"
-            "Do you want to save them?"
-        )
-
-        if answer is None:
-            return False
-
-        if answer:
-            return bool(
-                self.save_document()
+            content = self.text.get(
+                "1.0",
+                "end-1c"
             )
 
-        return True
+            words = len(
+                content.split()
+            )
 
-    def on_close(self):
-        if self.confirm_discard():
+            self.status_var.set(
+                f"Line {line}, Column {int(column) + 1}    "
+                f"Words: {words}"
+            )
+
+        except tk.TclError:
+            pass
+
+    # ============================================================
+    # EXIT
+    # ============================================================
+
+    def exit_application(self):
+        if self.confirm_save():
             self.root.destroy()
 
-    # =============================================================
-    # ABOUT
-    # =============================================================
 
-    def show_about(self):
-        messagebox.showinfo(
-            "About PowerEdit",
-            "PowerEdit\n\n"
-            "A WordPad-style Tkinter text editor.\n\n"
-            "Supports TXT and basic RTF formatting."
-        )
-
-
-# =============================================================
+# ================================================================
 # MAIN
-# =============================================================
+# ================================================================
 
 if __name__ == "__main__":
     root = tk.Tk()
-
-    try:
-        style = ttk.Style()
-
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-
-    except Exception:
-        pass
 
     app = PowerEdit(root)
 
