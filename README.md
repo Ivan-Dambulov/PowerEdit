@@ -1,5 +1,5 @@
 # PowerEdit
-<img width="1024" height="731" alt="image" src="https://github.com/user-attachments/assets/783d9a52-86f0-4b4f-a36b-1386c001f06c" />
+<img width="1391/2" height="815/2" alt="image" src="https://github.com/user-attachments/assets/95421b01-f039-441e-8016-9bbd48eb6964" />
 
 A clean, modern rich-text editor built with Python and Tkinter.
 
