@@ -253,8 +253,8 @@ class PowerEdit:
         ttk.Button(row2, text="Insert Table", command=self.insert_table).pack(side="left", padx=2)
         ttk.Separator(row2, orient="vertical").pack(side="left", fill="y", padx=6)
 
-        ttk.Button(row2, text="Print", command=self.print_document).pack(side="right", padx=2)
-        ttk.Button(row2, text="Export PDF", command=self.export_pdf).pack(side="right", padx=2)
+        ttk.Button(row2, text="Print", command=self.print_document).pack(side="left", padx=2)
+        ttk.Button(row2, text="Export PDF", command=self.export_pdf).pack(side="left", padx=2)
 
     # ============================================================
     # EDITOR
@@ -1269,25 +1269,189 @@ class PowerEdit:
         doc.build(story)
 
     def print_document(self):
-        if not REPORTLAB_AVAILABLE:
-            messagebox.showinfo("Print", "Install reportlab for formatted printing.\n\npip install reportlab")
+        content = self.text.get("1.0", "end-1c")
+        if not content.strip():
+            messagebox.showinfo("Print", "There is nothing to print.")
             return
+
+        if not REPORTLAB_AVAILABLE:
+            messagebox.showinfo(
+                "Print",
+                "Formatted printing requires reportlab.\n\nInstall it with:\n    pip install reportlab"
+            )
+            return
+
+        # First create the temporary PDF
         try:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 pdf_path = tmp.name
             self._write_pdf(pdf_path)
-
-            if sys.platform.startswith("win"):
-                os.startfile(pdf_path, "print")
-            elif sys.platform == "darwin":
-                subprocess.run(["lp", pdf_path], check=False)
-            else:
-                subprocess.run(["lp", pdf_path], check=False)
-
-            messagebox.showinfo("Print", "Document sent to printer.")
-            self.root.after(10000, lambda: self._safe_unlink(pdf_path))
         except Exception as exc:
-            messagebox.showerror("Print Error", str(exc))
+            messagebox.showerror("Print Error", f"Could not create PDF:\n{exc}")
+            return
+
+        # Show printer selection dialog
+        self._show_print_dialog(pdf_path)
+
+    def _show_print_dialog(self, pdf_path):
+        """Modern cross-platform printer selection dialog."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Print")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.geometry("420x280")
+
+        dialog.update_idletasks()
+        dialog.deiconify()
+        try:
+            dialog.wait_visibility()
+            dialog.grab_set()
+        except tk.TclError:
+            pass
+
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Select Printer", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 10))
+
+        # List of printers
+        printers = self._get_printers()
+        printer_var = tk.StringVar()
+
+        if printers:
+            printer_var.set(printers[0])  # default to first
+        else:
+            printers = ["No printers found"]
+
+        printer_combo = ttk.Combobox(
+            frame,
+            textvariable=printer_var,
+            values=printers,
+            state="readonly",
+            width=45
+        )
+        printer_combo.pack(fill="x", pady=(0, 15))
+
+        # Copies
+        copies_frame = ttk.Frame(frame)
+        copies_frame.pack(fill="x", pady=(5, 15))
+        ttk.Label(copies_frame, text="Number of copies:").pack(side="left")
+        copies_var = tk.IntVar(value=1)
+        ttk.Spinbox(copies_frame, from_=1, to=99, textvariable=copies_var, width=5).pack(side="left", padx=10)
+
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(side="bottom", fill="x", pady=(20, 0))
+
+        def do_print():
+            selected = printer_var.get()
+            if selected == "No printers found" or not selected:
+                messagebox.showwarning("Print", "No printer selected.")
+                return
+
+            copies = max(1, copies_var.get())
+            dialog.destroy()
+            self._send_to_printer(pdf_path, selected, copies)
+
+        ttk.Button(btn_frame, text="Print", command=do_print).pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side="right", padx=5)
+
+        # Also clean the temp file if user cancels
+        def on_close():
+            self._safe_unlink(pdf_path)
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+        dialog.wait_window()
+
+    def _get_printers(self):
+        """Return a list of available printers (cross-platform)."""
+        printers = []
+        system = sys.platform
+
+        try:
+            if system.startswith("win"):
+                # Windows
+                cmd = [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Get-Printer | Select-Object -ExpandProperty Name"
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    printers = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+            else:
+                # Linux & macOS
+                result = subprocess.run(["lpstat", "-a"], capture_output=True, text=True, timeout=8)
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if line.strip():
+                            # Format is usually: "PrinterName accepting requests ..."
+                            name = line.split()[0]
+                            printers.append(name)
+        except Exception:
+            pass
+
+        return printers
+
+    def _send_to_printer(self, pdf_path, printer_name, copies=1):
+        """Send the PDF to the selected printer."""
+        system = sys.platform
+        success = False
+
+        try:
+            if system.startswith("win"):
+                # Windows – use PowerShell
+                for _ in range(copies):
+                    cmd = [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f'Start-Process -FilePath "{pdf_path}" -Verb PrintTo -ArgumentList "{printer_name}" -WindowStyle Hidden -ErrorAction SilentlyContinue'
+                    ]
+                    # Alternative more reliable method:
+                    cmd2 = [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f'''
+                        $printer = "{printer_name}"
+                        Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
+                        '''
+                    ]
+                    result = subprocess.run(cmd2, capture_output=True, text=True, timeout=20)
+                    if result.returncode == 0:
+                        success = True
+
+            else:
+                # Linux & macOS – use lp
+                cmd = ["lp", "-d", printer_name, "-n", str(copies), pdf_path]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    success = True
+
+            if success:
+                messagebox.showinfo("Print", f"Document sent to printer:\n{printer_name}")
+            else:
+                # Final fallback
+                if system.startswith("win"):
+                    os.startfile(pdf_path)
+                else:
+                    subprocess.run(["xdg-open" if system != "darwin" else "open", pdf_path])
+                messagebox.showinfo(
+                    "Print",
+                    "Could not send directly to the selected printer.\n"
+                    "The PDF has been opened — please print manually."
+                )
+
+        except Exception as exc:
+            messagebox.showerror("Print Error", f"Failed to print:\n{exc}")
+
+        finally:
+            # Clean up later
+            self.root.after(30000, lambda: self._safe_unlink(pdf_path))
 
     def _safe_unlink(self, path):
         try:
