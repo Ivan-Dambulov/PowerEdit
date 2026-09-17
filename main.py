@@ -33,7 +33,7 @@ class PowerEdit:
     def __init__(self, root):
         self.root = root
         self.root.title("PowerEdit")
-        self.root.geometry("1111x600")
+        self.root.geometry("1300x600")
         self.root.minsize(750, 500)
 
         self.filename = None
@@ -147,17 +147,17 @@ class PowerEdit:
         frame.pack(fill="both", expand=True)
 
         ttk.Label(frame, text="PowerEdit", font=("Segoe UI", 18, "bold")).pack(pady=(0, 5))
-        ttk.Label(frame, text="Version 1.0", font=("Segoe UI", 10)).pack(pady=(0, 15))
+        ttk.Label(frame, text="Version 1.0", font=("Segoe UI", 14)).pack(pady=(0, 15))
 
         description = (
             "A clean and modern rich-text editor\n"
             "Made with ❤️ using Python\n\n"
             "Simple. Fast. Focused."
         )
-        ttk.Label(frame, text=description, justify="center", font=("Segoe UI", 10)).pack(pady=(0, 20))
+        ttk.Label(frame, text=description, justify="center", font=("Segoe UI", 14)).pack(pady=(0, 20))
 
-        ttk.Label(frame, text="Author: Ivan Dambulov", font=("Segoe UI", 10, "bold")).pack(pady=(10, 5))
-        ttk.Label(frame, text="www.ivand.eu", font=("Segoe UI", 10)).pack()
+        ttk.Label(frame, text="Author: Ivan Dambulov", font=("Segoe UI", 14, "bold")).pack(pady=(10, 5))
+        ttk.Label(frame, text="www.ivand.eu", font=("Segoe UI", 14)).pack()
 
         ttk.Button(frame, text="Close", command=dialog.destroy).pack(pady=(25, 0))
 
@@ -264,9 +264,17 @@ class PowerEdit:
         frame.pack(fill="both", expand=True)
 
         self.text = tk.Text(
-            frame, wrap="word", undo=True, maxundo=-1,
+            frame,
+            wrap="word",
+            undo=True,
+            maxundo=-1,
             font=(self.DEFAULT_FONT, self.DEFAULT_SIZE),
-            padx=10, pady=10, tabs=("2c",)
+            padx=10,
+            pady=10,
+            tabs=("2c",),
+            bg="white",  # background stays white
+            fg="black",  # text stays black
+            insertbackground="black"  # cursor stays visible
         )
         self.text.pack(side="left", fill="both", expand=True)
 
