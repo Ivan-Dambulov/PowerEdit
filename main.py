@@ -209,11 +209,21 @@ class PowerEdit:
                                        command=self.toggle_strike, relief="raised")
         self.strike_button.pack(side="left", padx=1)
 
-        tk.Label(row1, text="Text Color:").pack(side="left", padx=(8, 2))
-        self.color_button = tk.Button(row1, text="A", width=3, font=("Arial", 10, "bold"),
-                                      fg="black", command=self.choose_color)
+        tk.Label(row1, text="Color:").pack(side="left", padx=(8, 2))
+
+        self.color_button = tk.Button(
+            row1,
+            text="A",
+            width=3,
+            font=("Arial", 11, "bold"),
+            relief="raised",
+            bd=2,
+            command=self.show_color_palette
+        )
         self.color_button.pack(side="left", padx=2)
-        ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=6)
+
+        # Initialize the visual look
+        self.update_color_button()
 
         ttk.Button(row1, text="• Bullet List", command=self.toggle_bullets).pack(side="left", padx=2)
         ttk.Button(row1, text="1. Number List", command=self.toggle_numbering).pack(side="left", padx=2)
@@ -397,10 +407,15 @@ class PowerEdit:
         for tag in reversed(tags):
             if tag.startswith("fmt_") and tag in self.format_tags:
                 return self.format_tags[tag].copy()
+        # Untagged text uses the widget's real base defaults
         return {
-            "font": self.current_font, "size": self.current_size,
-            "color": self.current_color, "bold": self.bold,
-            "italic": self.italic, "underline": self.underline, "strike": self.strike
+            "font": self.DEFAULT_FONT,
+            "size": self.DEFAULT_SIZE,
+            "color": self.DEFAULT_COLOR,
+            "bold": False,
+            "italic": False,
+            "underline": False,
+            "strike": False,
         }
 
     def create_format_tag(self, fmt):
@@ -547,11 +562,127 @@ class PowerEdit:
         self.text.focus_set()
         self.update_toolbar()
 
-    def choose_color(self):
-        result = colorchooser.askcolor(title="Choose Text Color", parent=self.root,
-                                       initialcolor=self.current_color)
+    def show_color_palette(self):
+        """Show a modern color palette popup with reliable color swatches."""
+        if hasattr(self, "_color_palette") and self._color_palette.winfo_exists():
+            self._color_palette.destroy()
+
+        palette = tk.Toplevel(self.root)
+        self._color_palette = palette
+        palette.title("Text Color")
+        palette.transient(self.root)
+        palette.resizable(False, False)
+        palette.attributes("-topmost", True)
+
+        # Position under the color button
+        try:
+            x = self.color_button.winfo_rootx()
+            y = self.color_button.winfo_rooty() + self.color_button.winfo_height() + 4
+            palette.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+
+        main = ttk.Frame(palette, padding=12)
+        main.pack()
+
+        def make_swatch(parent, color, row, col):
+            """Create a solid color swatch that actually shows the color."""
+            swatch = tk.Label(
+                parent,
+                width=3,
+                height=1,
+                bg=color,
+                relief="raised",
+                bd=1,
+                cursor="hand2"
+            )
+            swatch.grid(row=row, column=col, padx=2, pady=2)
+
+            # Click to apply
+            swatch.bind("<Button-1>", lambda e, c=color: self._apply_palette_color(c, palette))
+
+            # Nice hover effect
+            def on_enter(e):
+                swatch.config(relief="sunken")
+
+            def on_leave(e):
+                swatch.config(relief="raised")
+
+            swatch.bind("<Enter>", on_enter)
+            swatch.bind("<Leave>", on_leave)
+
+            return swatch
+
+        # ---------- Theme Colors ----------
+        ttk.Label(main, text="Theme Colors", font=("Segoe UI", 9, "bold")).grid(
+            row=0, column=0, columnspan=10, sticky="w", pady=(0, 6)
+        )
+
+        theme_colors = [
+            "#000000", "#FFFFFF", "#FF0000", "#00B050", "#0070C0",
+            "#7030A0", "#FFC000", "#C00000", "#00B0F0", "#002060"
+        ]
+
+        for i, color in enumerate(theme_colors):
+            make_swatch(main, color, 1, i)
+
+        # ---------- Standard Colors ----------
+        ttk.Label(main, text="Standard Colors", font=("Segoe UI", 9, "bold")).grid(
+            row=2, column=0, columnspan=10, sticky="w", pady=(14, 6)
+        )
+
+        standard_colors = [
+            "#FF6B6B", "#FF9F43", "#FECA57", "#1DD1A1", "#54A0FF",
+            "#5F27CD", "#C8D6E5", "#8395A7", "#222F3D", "#576574",
+            "#EE5A24", "#F79F1F", "#A3CB38", "#1289A7", "#D980FA",
+            "#B53471", "#FDA7DF", "#ED4C67", "#5758BB", "#341F97",
+            "#2F3542", "#747D8C", "#A4B0BE", "#DFE4EA", "#F1F2F6",
+            "#FF3838", "#FF9FF3", "#18DCFF", "#7D5FFF", "#32FF7E"
+        ]
+
+        for i, color in enumerate(standard_colors):
+            r = 3 + i // 10
+            c = i % 10
+            make_swatch(main, color, r, c)
+
+        # ---------- More Colors ----------
+        ttk.Separator(main, orient="horizontal").grid(
+            row=7, column=0, columnspan=10, sticky="ew", pady=12
+        )
+
+        ttk.Button(
+            main, text="More Colors...",
+            command=lambda: self._open_full_color_dialog(palette)
+        ).grid(row=8, column=0, columnspan=10)
+
+        palette.bind("<Escape>", lambda e: palette.destroy())
+        palette.focus_set()
+
+    def update_color_button(self):
+        """Make the toolbar button clearly show the current text color."""
+        color = self.current_color
+        self.color_button.configure(fg=color, bg="white")
+
+        # Optional: make the background a light version of the color for better visibility
+        # You can also just leave it white + colored "A"
+
+    def _apply_palette_color(self, color, palette_window):
+        """Apply color from palette and close it."""
+        self.set_color(color)
+        self.update_color_button()
+        palette_window.destroy()
+
+    def _open_full_color_dialog(self, palette_window):
+        """Fallback to the classic color chooser."""
+        palette_window.destroy()
+        result = colorchooser.askcolor(
+            title="Choose Text Color",
+            parent=self.root,
+            initialcolor=self.current_color
+        )
         if result[1]:
             self.set_color(result[1])
+            self.update_color_button()
 
     def set_color(self, color):
         if isinstance(color, tuple):
@@ -559,7 +690,7 @@ class PowerEdit:
         if color:
             self.apply_single_property_to_selection("color", str(color))
             self.current_color = str(color)
-            self.color_button.configure(fg=self.current_color)
+            self.update_color_button()  # ← add this line
         self.text.focus_set()
         self.update_toolbar()
 
@@ -1063,11 +1194,205 @@ class PowerEdit:
             pass
 
     def paste(self):
+        """Paste with rich formatting using BeautifulSoup when HTML is available."""
         try:
-            self.text.insert("insert", self.root.clipboard_get())
+            html = None
+
+            # Try different clipboard formats (cross-platform)
+            for fmt in ("HTML Format", "text/html", "text/html;charset=utf-8"):
+                try:
+                    html = self.root.clipboard_get(type=fmt)
+                    if html and len(html) > 10:
+                        break
+                except tk.TclError:
+                    continue
+
+            if html and ("<" in html and ">" in html):
+                self._paste_html_bs4(html)
+            else:
+                # Fallback to plain text
+                text = self.root.clipboard_get()
+                self.text.insert("insert", text)
+
             self.modified = True
+            self.update_title()
+            self.update_status()
         except tk.TclError:
             pass
+
+    def _paste_html_bs4(self, html):
+        """Parse HTML with BeautifulSoup and apply formatting."""
+        try:
+            from bs4 import BeautifulSoup
+            from bs4.element import NavigableString, Tag
+        except ImportError:
+            messagebox.showwarning(
+                "Missing Dependency",
+                "BeautifulSoup is required for rich paste.\n\nInstall it with:\n  pip install beautifulsoup4"
+            )
+            # Fallback
+            self.text.insert("insert", self.root.clipboard_get())
+            return
+
+        from html import unescape
+        import re
+
+        # Clean up Word/Outlook conditional comments and extra junk
+        html = re.sub(r'<!--\[if.*?\]>.*?<!\[endif\]-->', '', html, flags=re.DOTALL)
+        html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Remove scripts and styles
+        for tag in soup(["script", "style", "meta", "link", "title"]):
+            tag.decompose()
+
+        def get_style_from_tag(tag):
+            """Extract formatting from a tag and its style attribute."""
+            fmt = {
+                "bold": False,
+                "italic": False,
+                "underline": False,
+                "strike": False,
+                "color": self.current_color,
+                "size": self.current_size,
+                "font": self.current_font,
+            }
+
+            name = tag.name.lower() if tag.name else ""
+
+            # Semantic tags
+            if name in ("b", "strong"):
+                fmt["bold"] = True
+            if name in ("i", "em"):
+                fmt["italic"] = True
+            if name == "u":
+                fmt["underline"] = True
+            if name in ("s", "strike", "del"):
+                fmt["strike"] = True
+
+            # Headings → bigger + bold
+            if name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                fmt["bold"] = True
+                sizes = {"h1": 24, "h2": 20, "h3": 16, "h4": 14, "h5": 12, "h6": 11}
+                fmt["size"] = sizes.get(name, 14)
+
+            # Inline style attribute
+            style = tag.get("style", "")
+            if style:
+                style = style.lower()
+
+                if "font-weight:bold" in style or "font-weight: bold" in style or "font-weight:700" in style:
+                    fmt["bold"] = True
+                if "font-style:italic" in style or "font-style: italic" in style:
+                    fmt["italic"] = True
+                if "text-decoration:underline" in style or "text-decoration: underline" in style:
+                    fmt["underline"] = True
+                if "text-decoration:line-through" in style:
+                    fmt["strike"] = True
+
+                # Color
+                m = re.search(r'color\s*:\s*([^;]+)', style)
+                if m:
+                    color = m.group(1).strip().replace(" ", "")
+                    if color.startswith("#") or color in ("red", "blue", "green", "black", "white", "gray", "grey"):
+                        fmt["color"] = color
+
+                # Font size
+                m = re.search(r'font-size\s*:\s*(\d+)(?:px|pt)?', style)
+                if m:
+                    fmt["size"] = int(m.group(1))
+
+                # Font family (basic)
+                m = re.search(r'font-family\s*:\s*([^;]+)', style)
+                if m:
+                    font = m.group(1).split(",")[0].strip().strip("'\"")
+                    if font and font.lower() not in ("inherit", "initial", "serif", "sans-serif", "monospace"):
+                        fmt["font"] = font
+
+            # <font> tag attributes (old HTML)
+            if name == "font":
+                if tag.get("color"):
+                    fmt["color"] = tag["color"]
+                if tag.get("size"):
+                    try:
+                        # HTML font size 1-7 → approximate pt
+                        size_map = {1: 8, 2: 10, 3: 12, 4: 14, 5: 18, 6: 24, 7: 36}
+                        fmt["size"] = size_map.get(int(tag["size"]), 12)
+                    except Exception:
+                        pass
+                if tag.get("face"):
+                    fmt["font"] = tag["face"].split(",")[0].strip()
+
+            return fmt
+
+        def walk(node, inherited_fmt=None):
+            """Recursively walk the HTML tree and insert formatted text."""
+            if inherited_fmt is None:
+                inherited_fmt = {
+                    "bold": False, "italic": False, "underline": False, "strike": False,
+                    "color": self.current_color, "size": self.current_size, "font": self.current_font
+                }
+
+            if isinstance(node, NavigableString):
+                text = str(node)
+                # Normalize whitespace but keep single spaces
+                text = re.sub(r'[ \t]+', ' ', text)
+                if not text:
+                    return
+
+                start = self.text.index("insert")
+                self.text.insert("insert", text)
+                end = self.text.index("insert")
+
+                tag_name = self.create_format_tag(inherited_fmt)
+                self.remove_format_tags(start, end)
+                self.text.tag_add(tag_name, start, end)
+                return
+
+            if not isinstance(node, Tag):
+                return
+
+            name = node.name.lower()
+
+            # Block elements → insert newline before (except first)
+            block_tags = {"p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6",
+                          "li", "tr", "section", "article", "header", "footer"}
+            if name in block_tags:
+                # Avoid double newlines
+                current = self.text.get("insert-1c", "insert")
+                if current and current != "\n":
+                    self.text.insert("insert", "\n")
+
+            if name == "br":
+                self.text.insert("insert", "\n")
+                return
+
+            # Merge formatting
+            current_fmt = inherited_fmt.copy()
+            tag_fmt = get_style_from_tag(node)
+            for k, v in tag_fmt.items():
+                if k in ("bold", "italic", "underline", "strike"):
+                    current_fmt[k] = current_fmt[k] or v
+                else:
+                    if v != self.current_color and v != self.current_size and v != self.current_font:
+                        current_fmt[k] = v
+                    elif k in ("color", "size", "font") and v:
+                        current_fmt[k] = v
+
+            # Recurse into children
+            for child in node.children:
+                walk(child, current_fmt)
+
+            # Closing block element → extra newline sometimes helps
+            if name in ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
+                current = self.text.get("insert-1c", "insert")
+                if current and current != "\n":
+                    self.text.insert("insert", "\n")
+
+        # Start walking from body (or the whole soup if no body)
+        root = soup.body if soup.body else soup
+        walk(root)
 
     def select_all(self):
         self.text.tag_add("sel", "1.0", "end-1c")
@@ -1236,13 +1561,19 @@ class PowerEdit:
 
     def save_to_file(self, filename):
         try:
-            content = self.text.get("1.0", "end-1c")
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(content)
-            self.filename = filename
-            self.modified = False
-            self.update_title()
-            return True
+            if filename.lower().endswith(".rtf"):
+                success = self.save_as_rtf(filename)
+            else:
+                content = self.text.get("1.0", "end-1c")
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(content)
+                success = True
+
+            if success:
+                self.filename = filename
+                self.modified = False
+                self.update_title()
+            return success
         except Exception as exc:
             messagebox.showerror("Save Error", str(exc))
             return False
@@ -1264,17 +1595,377 @@ class PowerEdit:
             messagebox.showerror("PDF Error", str(exc))
 
     def _write_pdf(self, filename):
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+        )
+        from reportlab.lib.units import inch
+        from reportlab.lib.utils import ImageReader
+        from io import BytesIO
+
         pagesize = self.get_pagesize()
+        page_width = pagesize[0] - 1.5 * inch
+
         doc = SimpleDocTemplate(
             filename, pagesize=pagesize,
-            leftMargin=0.75*inch, rightMargin=0.75*inch,
-            topMargin=0.75*inch, bottomMargin=0.75*inch
+            leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+            topMargin=0.75 * inch, bottomMargin=0.75 * inch
         )
+
         styles = getSampleStyleSheet()
+        style_left = ParagraphStyle(
+            'Left', parent=styles['Normal'],
+            alignment=TA_LEFT, spaceAfter=6, leading=14
+        )
+        style_center = ParagraphStyle(
+            'Center', parent=styles['Normal'],
+            alignment=TA_CENTER, spaceAfter=6, leading=14
+        )
+        style_right = ParagraphStyle(
+            'Right', parent=styles['Normal'],
+            alignment=TA_RIGHT, spaceAfter=6, leading=14
+        )
+
+        # -------------------------------------------------
+        # Collect images
+        # -------------------------------------------------
+        image_positions = {}
+        for name in self.text.image_names():
+            if name.startswith("img_"):
+                try:
+                    idx = int(name.split("_")[1])
+                    if 0 <= idx < len(self.image_objects):
+                        pos = self.text.index(name)
+                        image_positions[pos] = self.image_objects[idx]
+                except (ValueError, IndexError, tk.TclError):
+                    continue
+
         story = []
-        for line in self.text.get("1.0", "end-1c").split("\n"):
-            story.append(Paragraph(line.replace("&", "&amp;").replace("<", "&lt;") or "&nbsp;", styles["Normal"]))
+        content = self.text.get("1.0", "end-1c")
+        lines = content.split("\n")
+
+        for line_idx, line in enumerate(lines):
+            line_start = f"{line_idx + 1}.0"
+            line_end = f"{line_idx + 1}.end"
+
+            # ----- Images on this line -----
+            images_on_line = []
+            for pos, data in image_positions.items():
+                if (self.text.compare(pos, ">=", line_start) and
+                        self.text.compare(pos, "<=", line_end)):
+                    images_on_line.append((pos, data))
+
+            if images_on_line:
+                images_on_line.sort(key=lambda x: self.text.index(x[0]))
+
+                for pos, data in images_on_line:
+                    try:
+                        pil_img = data["original"].copy()
+                        target_w = data["width"]
+                        target_h = data["height"]
+
+                        if target_w > page_width:
+                            ratio = page_width / target_w
+                            target_w = page_width
+                            target_h = target_h * ratio
+
+                        pil_img = pil_img.resize(
+                            (int(target_w), int(target_h)),
+                            Image.Resampling.LANCZOS
+                        )
+
+                        buffer = BytesIO()
+                        pil_img.save(buffer, format="PNG")
+                        buffer.seek(0)
+
+                        rl_img = RLImage(
+                            ImageReader(buffer),
+                            width=target_w * 0.75,
+                            height=target_h * 0.75
+                        )
+                        rl_img.hAlign = "CENTER"
+                        story.append(rl_img)
+                        story.append(Spacer(1, 8))
+                    except Exception as e:
+                        print(f"PDF image error: {e}")
+                        continue
+                continue
+
+            # ----- Empty line -----
+            if not line.strip():
+                story.append(Spacer(1, 8))
+                continue
+
+            # ----- Alignment -----
+            align = "left"
+            for tag in self.text.tag_names(line_start):
+                if tag.startswith("align_"):
+                    align = tag.replace("align_", "")
+                    break
+            style = {
+                "left": style_left,
+                "center": style_center,
+                "right": style_right
+            }.get(align, style_left)
+
+            # ----- Build rich text runs -----
+            rich = []
+            pos = 0
+            while pos < len(line):
+                index = f"{line_idx + 1}.{pos}"
+                fmt = self.get_format_at(index)
+
+                run_end = pos + 1
+                while run_end < len(line):
+                    if self.get_format_at(f"{line_idx + 1}.{run_end}") != fmt:
+                        break
+                    run_end += 1
+
+                text = line[pos:run_end]
+                text = (text.replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;"))
+
+                # Use embedded font (or safe fallback)
+                safe_font = self._get_reportlab_font(
+                    fmt["font"], fmt["bold"], fmt["italic"]
+                )
+
+                parts = []
+                if fmt["underline"]:
+                    parts.append("<u>")
+
+                parts.append(
+                    f'<font name="{safe_font}" size="{fmt["size"]}" color="{fmt["color"]}">'
+                )
+                parts.append(text)
+                parts.append("</font>")
+
+                if fmt["underline"]:
+                    parts.append("</u>")
+
+                rich.append("".join(parts))
+                pos = run_end
+
+            para_text = "".join(rich) or "&nbsp;"
+            story.append(Paragraph(para_text, style))
+
         doc.build(story)
+
+    def _get_reportlab_font(self, font_name, bold=False, italic=False):
+        """
+        Try to embed the real font. Falls back to Helvetica family if not found.
+        """
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import os
+        import sys
+
+        font_name = (font_name or "Arial").strip()
+        key = f"{font_name}|{int(bold)}|{int(italic)}"
+
+        if not hasattr(self, "_rl_font_cache"):
+            self._rl_font_cache = {}
+
+        if key in self._rl_font_cache:
+            return self._rl_font_cache[key]
+
+        candidates = {
+            (False, False): [f"{font_name}.ttf", f"{font_name}.otf",
+                             f"{font_name}-Regular.ttf", f"{font_name} Regular.ttf"],
+            (True, False): [f"{font_name}bd.ttf", f"{font_name}-Bold.ttf",
+                            f"{font_name} Bold.ttf", f"{font_name}b.ttf"],
+            (False, True): [f"{font_name}i.ttf", f"{font_name}-Italic.ttf",
+                            f"{font_name} Italic.ttf"],
+            (True, True): [f"{font_name}bi.ttf", f"{font_name}-BoldItalic.ttf",
+                           f"{font_name} Bold Italic.ttf", f"{font_name}z.ttf"],
+        }
+
+        font_dirs = []
+        if sys.platform.startswith("win"):
+            windir = os.environ.get("WINDIR", r"C:\Windows")
+            font_dirs.append(os.path.join(windir, "Fonts"))
+        elif sys.platform == "darwin":
+            font_dirs.extend([
+                "/Library/Fonts",
+                "/System/Library/Fonts",
+                os.path.expanduser("~/Library/Fonts")
+            ])
+        else:
+            font_dirs.extend([
+                "/usr/share/fonts",
+                "/usr/local/share/fonts",
+                os.path.expanduser("~/.fonts"),
+                os.path.expanduser("~/.local/share/fonts")
+            ])
+
+        registered_name = None
+        for directory in font_dirs:
+            if not os.path.isdir(directory):
+                continue
+            for root, dirs, files in os.walk(directory):
+                files_lower = {f.lower(): f for f in files}
+                for candidate in candidates[(bold, italic)]:
+                    if candidate.lower() in files_lower:
+                        full_path = os.path.join(root, files_lower[candidate.lower()])
+                        try:
+                            internal_name = f"Embed_{font_name}_{int(bold)}_{int(italic)}"
+                            pdfmetrics.registerFont(TTFont(internal_name, full_path))
+                            registered_name = internal_name
+                            break
+                        except Exception:
+                            continue
+                if registered_name:
+                    break
+            if registered_name:
+                break
+
+        if not registered_name:
+            if "times" in font_name.lower() or "serif" in font_name.lower():
+                registered_name = ("Times-BoldItalic" if bold and italic else
+                                   "Times-Bold" if bold else
+                                   "Times-Italic" if italic else "Times-Roman")
+            elif "courier" in font_name.lower() or "mono" in font_name.lower():
+                registered_name = ("Courier-BoldOblique" if bold and italic else
+                                   "Courier-Bold" if bold else
+                                   "Courier-Oblique" if italic else "Courier")
+            else:
+                registered_name = ("Helvetica-BoldOblique" if bold and italic else
+                                   "Helvetica-Bold" if bold else
+                                   "Helvetica-Oblique" if italic else "Helvetica")
+
+        self._rl_font_cache[key] = registered_name
+        return registered_name
+
+    def save_as_rtf(self, filename):
+        """Save document as real RTF with font, size, bold, italic, underline, color and alignment."""
+        try:
+            content = self.text.get("1.0", "end-1c")
+            lines = content.split("\n")
+
+            # Collect used fonts and colors
+            fonts = {}
+            colors = {"#000000": 0}  # black is always index 0
+            font_id = 0
+            color_id = 1
+
+            # First pass – collect fonts & colors
+            for line_idx, line in enumerate(lines):
+                for pos in range(len(line) + 1):
+                    index = f"{line_idx + 1}.{pos}"
+                    try:
+                        fmt = self.get_format_at(index)
+                    except Exception:
+                        continue
+                    f = fmt["font"]
+                    if f not in fonts:
+                        fonts[f] = font_id
+                        font_id += 1
+                    c = fmt["color"].upper()
+                    if c not in colors:
+                        colors[c] = color_id
+                        color_id += 1
+
+            # Build RTF header
+            rtf = [r"{\rtf1\ansi\deff0"]
+
+            # Font table
+            rtf.append(r"{\fonttbl")
+            for name, fid in fonts.items():
+                rtf.append(rf"{{\f{fid}\fnil\fcharset0 {name};}}")
+            rtf.append("}")
+
+            # Color table
+            rtf.append(r"{\colortbl;")
+            sorted_colors = sorted(colors.items(), key=lambda x: x[1])
+            for color, cid in sorted_colors:
+                if cid == 0:
+                    continue
+                color = color.lstrip("#")
+                if len(color) == 6:
+                    r = int(color[0:2], 16)
+                    g = int(color[2:4], 16)
+                    b = int(color[4:6], 16)
+                    rtf.append(rf"\red{r}\green{g}\blue{b};")
+            rtf.append("}")
+
+            rtf.append(r"\viewkind4\uc1")
+
+            # Second pass – write content with alignment
+            for line_idx, line in enumerate(lines):
+                if line_idx > 0:
+                    rtf.append(r"\par")
+
+                # ----- Alignment detection -----
+                line_start = f"{line_idx + 1}.0"
+                align = "left"
+                for tag in self.text.tag_names(line_start):
+                    if tag.startswith("align_"):
+                        align = tag.replace("align_", "")
+                        break
+
+                if align == "center":
+                    rtf.append(r"\qc ")
+                elif align == "right":
+                    rtf.append(r"\qr ")
+                else:
+                    rtf.append(r"\ql ")  # left (default)
+
+                # ----- Character formatting -----
+                pos = 0
+                while pos < len(line):
+                    index = f"{line_idx + 1}.{pos}"
+                    fmt = self.get_format_at(index)
+
+                    # Find run length
+                    run_end = pos + 1
+                    while run_end < len(line):
+                        if self.get_format_at(f"{line_idx + 1}.{run_end}") != fmt:
+                            break
+                        run_end += 1
+
+                    text = line[pos:run_end]
+
+                    fid = fonts.get(fmt["font"], 0)
+                    cid = colors.get(fmt["color"].upper(), 0)
+                    fs = int(fmt["size"] * 2)  # RTF uses half-points
+
+                    controls = [rf"\f{fid}", rf"\fs{fs}", rf"\cf{cid}"]
+                    if fmt["bold"]:
+                        controls.append(r"\b")
+                    if fmt["italic"]:
+                        controls.append(r"\i")
+                    if fmt["underline"]:
+                        controls.append(r"\ul")
+
+                    rtf.append("".join(controls) + " ")
+
+                    # Escape special RTF characters
+                    text = (text.replace("\\", r"\\")
+                            .replace("{", r"\{")
+                            .replace("}", r"\}"))
+                    rtf.append(text)
+
+                    # Turn formatting off
+                    if fmt["bold"]:
+                        rtf.append(r"\b0")
+                    if fmt["italic"]:
+                        rtf.append(r"\i0")
+                    if fmt["underline"]:
+                        rtf.append(r"\ul0")
+
+                    pos = run_end
+
+            rtf.append("}")
+
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write("".join(rtf))
+
+            return True
+        except Exception as exc:
+            messagebox.showerror("RTF Save Error", str(exc))
+            return False
 
     def print_document(self):
         content = self.text.get("1.0", "end-1c")
